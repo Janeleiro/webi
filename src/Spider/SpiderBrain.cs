@@ -205,7 +205,8 @@ public sealed class SpiderBrain
         if (TickWebTask(dt)) return;
         if (_spider.State == Mode.Hanging) { TickHanging(dt); return; }
         TickLittleScenes(dt, cursorDist);
-        if (_spider.State != Mode.Grounded || _spider.IsWalking) return;
+        // Let gestures finish (peeking is 5 s; cutting it short pops the body back up in one frame).
+        if (_spider.State != Mode.Grounded || _spider.IsWalking || _spider.CurrentGesture != Gesture.None) return;
 
         _decisionTimer -= dt;
         if (_decisionTimer > 0) return;
@@ -795,11 +796,14 @@ public sealed class SpiderBrain
 
     bool TryStartHunt(Vector2 cursor, float cursorDist)
     {
+        // Decisions only come while idle on the ground, so a trip to a web for a meal is over (eaten or failed):
+        // forget it, so a failed trip can be tried again.
+        _webMeal = null;
         var surf = _spider.Surface;
         if (surf == null || !surf.IsFloorLike) return false;
 
         // A fly stuck in one of the corner webs: go hang there and eat it.
-        if (Bugs != null && Webs != null && _webMeal == null)
+        if (Bugs != null && Webs != null)
         {
             var stuck = Bugs.Flies.FirstOrDefault(f => f.State == FlyState.Stuck && f.Web is { Alive: true, Visible: true, Giant: false });
             if (stuck != null && Webs.Spots(_map, freeOnly: false).Any(sp => sp.Key == stuck.Web!.Key))
@@ -1016,12 +1020,23 @@ public sealed class SpiderBrain
         }
     }
 
-    /// <summary>The window under it moved (speed in px/s): a ride, or thrown off when shaken hard.</summary>
+    /// <summary>Recent readings of the window under it moving (time, px/s).</summary>
+    readonly Queue<(double t, float speed)> _carry = new();
+
+    /// <summary>
+    /// The window under it moved (speed in px/s): a ride, or thrown off when shaken hard. Only sustained movement
+    /// over several readings counts: maximizing or snapping a window jumps it once and must not throw her off.
+    /// </summary>
     public void OnCarried(float speed)
     {
+        double now = Time.GetTicksMsec() / 1000.0;
+        _carry.Enqueue((now, speed));
+        while (_carry.Count > 0 && now - _carry.Peek().t > 0.8) _carry.Dequeue();
         if (_stage != Stage.None || _spider.State != Mode.Grounded || Asleep) return;
-        if (speed > 2600)
+        int fast = _carry.Count(c => c.speed > 1500), moving = _carry.Count(c => c.speed > 200);
+        if (fast >= 3)
         {
+            _carry.Clear();
             EndHunt();
             EndTask();
             _spider.Fling(new Vector2(_rng.RandfRange(-350, 350), -650));
@@ -1030,7 +1045,7 @@ public sealed class SpiderBrain
             _carriedCooldown = 10;
             return;
         }
-        if (speed > 250 && _carriedCooldown <= 0)
+        if (moving >= 2 && _carriedCooldown <= 0)
         {
             _carriedCooldown = 45;
             React(Face.Surprised, 1.2f);

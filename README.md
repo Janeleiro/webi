@@ -98,14 +98,15 @@ um alerta.
 - **Moscas:** de tempos em tempos (3-8 min) aparece uma mosca em pixel art que voa pela tela, pousa nas
   bordas das janelas e vai embora depois de uns 2 min. A Webi chega perto, faz o **bote** (agachada, patas da
   frente erguidas, abdômen rebolando) e pula nela. Às vezes a mosca percebe e foge. Mosca que voa numa teia de
-  canto fica presa: a Webi vai até a teia e come. Menu "🪰 Moscas para caçar" (config `bugs`).
+  canto fica presa: a Webi vai até a teia e come (se ela não vier em uns 3 min, a mosca se solta e vai embora). Menu "🪰 Moscas para caçar" (config `bugs`).
 - **Caçar o cursor:** com o mouse parado perto dela, às vezes ela faz o bote e pula nele. Se o cursor se mexer
   antes, ela disfarça limpando as patinhas.
 - **Espiar:** em cima de uma janela, ela se esconde atrás da borda e só os olhos e as patas da frente aparecem.
   Chegar perto com o mouse a faz pular com um "Achou!".
 - **Tropeço** (às vezes, correndo), **bocejo** alguns segundos antes de dormir e **"Z"s** em pixel art subindo
   enquanto dorme (no lugar do balão "z z z").
-- **Carona:** arrastar a janela em que ela está rende um comentário; sacudir com força a derruba.
+- **Carona:** arrastar a janela em que ela está rende um comentário; sacudir com força (vários movimentos
+  rápidos seguidos) a derruba. Maximizar ou encaixar a janela não conta como sacudida.
 
 ## Datas especiais
 
@@ -147,8 +148,9 @@ Carnaval e Páscoa são calculados. Tudo em `src/Assistant/Seasons.cs`.
 ## O que ela lembra
 
 `%APPDATA%\Godot\app_userdata\Webi\state.json` guarda a amizade, os números do dia (zerados a cada dia), os
-timers e os post-its. É gravado a cada minuto e ao sair, e nada sai do PC. Se o arquivo estiver corrompido,
-ela começa do zero.
+timers e os post-its. É gravado a cada minuto e ao sair, e nada sai do PC. A gravação é feita num arquivo
+temporário e depois trocada, para não corromper. Se mesmo assim o arquivo estiver inválido, ela começa do zero e
+guarda o antigo como `state.json.bad`.
 
 ## Vários monitores
 

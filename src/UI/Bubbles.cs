@@ -105,7 +105,8 @@ public partial class SpeechBubble : PanelContainer
     /// <summary>Index of the answer button under the point, or -1.</summary>
     public int ChoiceAt(Vector2 p)
     {
-        if (!HasChoices || IsTyping) return -1;
+        // Clickable while the text is still being typed, or the click would fall through and close the bubble.
+        if (!HasChoices) return -1;
         for (int i = 0; i < _choices.GetChildCount(); i++)
             if (_choices.GetChild<Control>(i).GetGlobalRect().HasPoint(p)) return i;
         return -1;

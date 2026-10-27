@@ -55,21 +55,6 @@ public partial class StickyNotes : Node2D
             AddChild(label);
             _cards.Add(new Card { Label = label, Phase = _rng.RandfRange(0, Mathf.Tau), Age = 0 });
         }
-        Layout();
-    }
-
-    void Layout()
-    {
-        for (int i = 0; i < _cards.Count; i++)
-        {
-            var c = _cards[i];
-            c.Label.ResetSize();
-            var text = c.Label.GetCombinedMinimumSize();
-            c.Size = new Vector2(Width, Mathf.Max(70, text.Y + 30));
-            // Side by side from the right, on threads of different lengths; well below the title bars.
-            float x = Bounds.End.X - 40 - Width / 2 - i * (Width + 18);
-            c.Anchor = new Vector2(x, Bounds.Position.Y);
-        }
     }
 
     /// <summary>Index of the note under the point, or -1.</summary>
@@ -89,6 +74,10 @@ public partial class StickyNotes : Node2D
         {
             var c = _cards[i];
             c.Age += dt;
+            // Measured every frame: a wrapped label only knows its line count once it has its width, and the
+            // monitors can change. Side by side from the right, on threads of different lengths.
+            c.Size = new Vector2(Width, Mathf.Max(70, c.Label.GetCombinedMinimumSize().Y + 30));
+            c.Anchor = new Vector2(Bounds.End.X - 40 - Width / 2 - i * (Width + 18), Bounds.Position.Y);
             float drop = Bounds.Size.Y * (0.28f + (i % 2) * 0.06f);
             // Lowered down on the thread when it appears.
             float lowered = Mathf.Min(1, c.Age / 0.8f);

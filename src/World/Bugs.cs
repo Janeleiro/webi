@@ -188,8 +188,15 @@ public partial class BugLayer : Node2D
             fly.Life = Mathf.Max(fly.Life, 40);
             return;
         }
-        // Struggling.
+        // Struggling, until it breaks free (otherwise flies stuck where Webi can't reach would stop new ones
+        // from showing up).
         fly.Pos = fly.Web.ToWorld(fly.WebLocal) + new Vector2(Mathf.Sin(_time * 40) * 1.5f, 0);
+        if ((fly.Timer -= dt) <= 0)
+        {
+            fly.Dodged.Add(fly.Web);
+            fly.Web = null;
+            fly.State = FlyState.Leaving;
+        }
     }
 
     void Leave(Fly fly, float dt)
@@ -226,6 +233,8 @@ public partial class BugLayer : Node2D
                 fly.State = FlyState.Stuck;
                 fly.Web = web;
                 fly.WebLocal = local;
+                // Webi has a few minutes to come for it before it wriggles free.
+                fly.Timer = _rng.RandfRange(150, 240);
                 Stuck?.Invoke(fly);
                 return;
             }

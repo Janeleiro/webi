@@ -83,8 +83,9 @@ public sealed class AppState
         }
         catch (Exception e)
         {
-            // A broken state file only costs the friendship points and today's numbers: start over.
-            GD.PushWarning($"state.json inválido, começando do zero: {e.Message}");
+            // Start over, but keep the broken file as state.json.bad (it gets overwritten on the next save).
+            GD.PushWarning($"state.json inválido, começando do zero (cópia em state.json.bad): {e.Message}");
+            try { File.Copy(path, path + ".bad", overwrite: true); } catch (Exception) { }
             state = new AppState();
         }
         state.Path = path;
@@ -109,7 +110,10 @@ public sealed class AppState
         if (Path == null) return;
         try
         {
-            File.WriteAllText(Path, JsonSerializer.Serialize(this, Json));
+            // Written aside and then swapped in, so a crash mid-write never leaves a half-written file.
+            var tmp = Path + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(this, Json));
+            File.Move(tmp, Path, overwrite: true);
         }
         catch (Exception e)
         {
