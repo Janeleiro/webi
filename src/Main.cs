@@ -1,0 +1,598 @@
+using System.Linq;
+using Godot;
+using Webi.Assistant;
+using Webi.Spider;
+using Webi.UI;
+using Webi.Win32;
+using Webi.World;
+using SpiderNode = Webi.Spider.Spider;
+
+namespace Webi;
+
+/// <summary>Wires everything: overlay window, desktop scanning, the spider, UI, reminders and system monitor.</summary>
+public partial class Main : Node2D
+{
+    const float ScanInterval = 0.15f;
+
+    readonly Overlay _overlay = new();
+    readonly SurfaceMap _map = new();
+    Config _config = null!;
+    DesktopScanner _scanner = null!;
+    SpiderNode _spider = null!;
+    SpiderBrain _brain = null!;
+    Reminders _reminders = null!;
+    SystemMonitor _monitor = null!;
+    AppWatcher _apps = null!;
+
+    SpeechBubble _bubble = null!;
+    ShoutBubble _shout = null!;
+    WebLayer _webs = null!;
+    PopupMenu _menu = null!;
+    /// <summary>Radio submenus (size, reminder intervals) and how to read their current value, for refreshing the checks.</summary>
+    readonly System.Collections.Generic.List<(PopupMenu menu, System.Func<int> current)> _radioMenus = new();
+    PopupMenu? _trayMenu;
+    StatusIndicator? _tray;
+
+    float _scanTimer, _topmostTimer, _fullscreenTimer, _layoutTimer, _debugTimer;
+    bool _hiddenForFullscreen;
+    bool _pressing, _dragging, _leftWasDown, _rightWasDown;
+    Vector2 _pressPos;
+    float _lastDelta = 1 / 60f;
+    bool _greeted;
+
+    enum MenuId { Pomodoro, PomodoroStatus, Upcoming, PcStatus, AppComments, MakeWeb, ClearWebs, AutoWebs, GiantWeb, Monitor, Autostart, OpenConfig, ReloadConfig, Sleep, Quit }
+
+    static readonly int[] ReminderIntervals = { 15, 30, 45, 60, 90 };
+    /// <summary>Ids of the submenu entries, clear of every <see cref="MenuId"/>.</summary>
+    const int SubmenuId = 100;
+
+    public override void _Ready()
+    {
+        _config = Config.Load();
+        _overlay.Setup(this);
+        _scanner = new DesktopScanner(_overlay);
+
+        _map.Rebuild(_scanner.Scan(), _overlay.WorkAreas);
+        // Webs first so they are drawn under the spider.
+        _webs = new WebLayer { PixelScale = _config.Scale };
+        AddChild(_webs);
+        _spider = new SpiderNode();
+        AddChild(_spider);
+        _spider.Setup(_map, _overlay.Bounds, PrimaryWork(), _config.Scale);
+        _spider.SetBounds(_overlay.Bounds, PrimaryWork(), _overlay.WorkAreas);
+        _spider.SetFur(FurColors.Find(_config.FurColor));
+
+        _brain = new SpiderBrain(_spider, _map)
+        {
+            Webs = _webs, AutoWebs = _config.AutoWebs, MaxWebs = _config.MaxWebs,
+            WorkAreaAt = p => { var m = _overlay.MonitorAt(p); return new Rect2(m.WorkArea.Position, m.WorkArea.Size); },
+        };
+        _brain.Shout += notice =>
+        {
+            _bubble.Visible = false;
+            _shout.Show(notice, 7);
+        };
+        _brain.Say += (text, secs) => _bubble.Show(text, secs);
+        _spider.Landed += OnFirstLanding;
+
+        _reminders = new Reminders(_config);
+        _reminders.Fired += (_, notice) => Notify(notice);
+        _monitor = new SystemMonitor(_config);
+        _monitor.Alert += (_, notice) => Notify(notice);
+        _apps = new AppWatcher(_overlay)
+        {
+            Enabled = _config.AppComments,
+            PomodoroRunning = () => _reminders.PomodoroRunning,
+        };
+        _apps.Comment += reaction =>
+        {
+            if (OS.HasEnvironment("WEBI_DEBUG")) GD.Print($"[comment] {_apps.Current?.Id}: {reaction.Text}");
+            _bubble.Show(_brain.Remark(reaction), 6);
+        };
+
+        BuildUi();
+        BuildTray();
+        Autostart.Refresh();
+
+        if (OS.HasEnvironment("WEBI_DEBUG"))
+        {
+            foreach (var m in _overlay.Monitors) GD.Print($"[debug] monitor {m.Bounds} work={m.WorkArea} primary={m.Primary}");
+            foreach (var surf in _map.All.Where(x => x.Owner < 0))
+                GD.Print($"[debug] border {surf} next={(surf.Next != null ? surf.Next.ToString() : "-")}");
+        }
+    }
+
+    /// <summary>Alerts are shouted from the middle of the screen; the rest goes in the normal bubble.</summary>
+    void Notify(Notice notice)
+    {
+        if (notice.Shout)
+        {
+            _brain.Announce(notice);
+            return;
+        }
+        _brain.React(notice.Happy ? Face.Happy : Face.Normal, 2);
+        _bubble.Show(notice.Plain, 6);
+    }
+
+    Rect2 PrimaryWork() => new(_overlay.Primary.WorkArea.Position, _overlay.Primary.WorkArea.Size);
+
+    void OnFirstLanding()
+    {
+        if (_greeted) return;
+        _greeted = true;
+        _brain.React(Face.Happy, 2);
+        _brain.Greet(_overlay.CursorWorld());
+        _bubble.Show(Lines.FirstHello, 7);
+    }
+
+    // ------------------------------------------------------------------ UI
+
+    void BuildUi()
+    {
+        // The bubble is part of the world (not a CanvasLayer) so it shows on whichever monitor the spider is.
+        _bubble = new SpeechBubble { Bounds = PrimaryWork(), ZIndex = 10 };
+        AddChild(_bubble);
+        _shout = new ShoutBubble { Bounds = PrimaryWork(), ZIndex = 11 };
+        AddChild(_shout);
+
+        _menu = CreateMenu();
+        AddChild(_menu);
+        _menu.PopupHide += () => CallDeferred(MethodName.ReturnMenuHome);
+    }
+
+    /// <summary>Builds a menu (used for the right-click menu and the tray); each gets its own submenus.</summary>
+    PopupMenu CreateMenu()
+    {
+        // Popups are transient children of the (always-on-top) overlay, so they already stay above it.
+        // Don't set AlwaysOnTop on them: Godot can't make an on-top window transient, and the submenus then
+        // fail to open and take the whole menu down.
+        var menu = new PopupMenu();
+        menu.AddItem("🍅 Iniciar pomodoro", (int)MenuId.Pomodoro);
+        menu.AddItem("⏱ Status do pomodoro", (int)MenuId.PomodoroStatus);
+        menu.AddItem("⏰ Próximos lembretes", (int)MenuId.Upcoming);
+        menu.AddItem("💻 Como está o PC?", (int)MenuId.PcStatus);
+        menu.AddSeparator();
+        // Submenus get their own ids: without one Godot uses the item's position, which collided with the
+        // MenuId values (the web checkboxes were being checked on the reminder submenus instead).
+        menu.AddSubmenuNodeItem("🎨 Cor",
+            RadioMenu(FurColors.All.Select((c, i) => (c.Name, i)),
+                () => System.Array.FindIndex(FurColors.All, c => c.Id == FurColors.Find(_config.FurColor).Id), SetFur), SubmenuId);
+        menu.AddSubmenuNodeItem("📏 Tamanho",
+            RadioMenu(new[] { 1, 2, 3, 4 }.Select(n => ($"{n}x", n)), () => _config.Scale, SetScale), SubmenuId + 1);
+        var intervals = new[] { ("Desligado", 0) }.Concat(ReminderIntervals.Select(m => ($"A cada {m} min", m))).ToArray();
+        menu.AddSubmenuNodeItem("💧 Lembrete de água",
+            RadioMenu(intervals, () => _config.WaterReminder ? _config.WaterMinutes : 0, SetWaterInterval), SubmenuId + 2);
+        menu.AddSubmenuNodeItem("🧘 Lembrete de pausa",
+            RadioMenu(intervals, () => _config.BreakReminder ? _config.BreakMinutes : 0, SetBreakInterval), SubmenuId + 3);
+        menu.AddCheckItem("💬 Comentar o que estou fazendo", (int)MenuId.AppComments);
+        menu.AddSeparator();
+        menu.AddItem("🕸️ Fazer uma teia", (int)MenuId.MakeWeb);
+        menu.AddItem("🧹 Limpar teias", (int)MenuId.ClearWebs);
+        menu.AddCheckItem("🕷️ Tecer teias por conta própria", (int)MenuId.AutoWebs);
+        menu.AddCheckItem("🕸️ Teia gigante com o mouse parado", (int)MenuId.GiantWeb);
+        menu.AddSeparator();
+        menu.AddCheckItem("📊 Monitor do sistema", (int)MenuId.Monitor);
+        menu.AddCheckItem("🚀 Iniciar com o Windows", (int)MenuId.Autostart);
+        menu.AddSeparator();
+        menu.AddItem("⚙ Abrir config.json", (int)MenuId.OpenConfig);
+        menu.AddItem("🔄 Recarregar config", (int)MenuId.ReloadConfig);
+        menu.AddItem("😴 Dormir", (int)MenuId.Sleep);
+        menu.AddSeparator();
+        menu.AddItem("👋 Sair", (int)MenuId.Quit);
+        menu.IdPressed += id =>
+        {
+            OnMenu((MenuId)(int)id);
+            RefreshMenus();
+        };
+        menu.AboutToPopup += RefreshMenus;
+        return menu;
+    }
+
+    PopupMenu RadioMenu(System.Collections.Generic.IEnumerable<(string label, int id)> items, System.Func<int> current, System.Action<int> apply)
+    {
+        var sub = new PopupMenu();
+        foreach (var (label, id) in items) sub.AddRadioCheckItem(label, id);
+        // Refresh every menu right away: the tray menu doesn't always announce that it's opening.
+        sub.IdPressed += id =>
+        {
+            apply((int)id);
+            RefreshMenus();
+        };
+        sub.AboutToPopup += RefreshMenus;
+        _radioMenus.Add((sub, current));
+        return sub;
+    }
+
+    void SetFur(int index)
+    {
+        var fur = FurColors.All[index];
+        _config.FurColor = fur.Id;
+        _config.Save();
+        _spider.SetFur(fur);
+        UpdateTrayIcon();
+        _brain.React(Face.Happy, 2);
+        _bubble.Show($"Pelagem nova: {fur.Name.ToLowerInvariant()}! Combinou comigo? 🎨", 4);
+    }
+
+    void UpdateTrayIcon()
+    {
+        if (_tray == null) return;
+        var icon = SpiderRig.LoadTexture("res://art/parts/icon.png");
+        if (icon == null) return;
+        _tray.Icon = ImageTexture.CreateFromImage(FurColors.RecolorFur(icon.GetImage(), FurColors.Find(_config.FurColor)));
+    }
+
+    void SetWaterInterval(int minutes)
+    {
+        _config.WaterReminder = minutes > 0;
+        if (minutes > 0) _config.WaterMinutes = minutes;
+        _config.Save();
+        _reminders.ResetWater();
+        _bubble.Show(minutes > 0
+            ? $"Combinado! Te lembro de beber água a cada {minutes} min de uso do PC. 💧"
+            : "Lembrete de água desligado.", 5);
+    }
+
+    void SetBreakInterval(int minutes)
+    {
+        _config.BreakReminder = minutes > 0;
+        if (minutes > 0) _config.BreakMinutes = minutes;
+        _config.Save();
+        _reminders.ResetBreak();
+        _bubble.Show(minutes > 0
+            ? $"Combinado! A cada {minutes} min de uso do PC eu te chamo pra uma pausa. 🧘"
+            : "Lembrete de pausa desligado.", 5);
+    }
+
+    void BuildTray()
+    {
+        if (!DisplayServer.HasFeature(DisplayServer.Feature.StatusIndicator)) return;
+        _trayMenu = CreateMenu();
+        AddChild(_trayMenu);
+
+        _tray = new StatusIndicator { Tooltip = "Webi" };
+        AddChild(_tray);
+        UpdateTrayIcon();
+        _tray.Menu = _tray.GetPathTo(_trayMenu);
+        _tray.Pressed += (button, _) =>
+        {
+            if (button == (long)MouseButton.Left) Poke();
+        };
+    }
+
+    /// <summary>
+    /// Opens the right-click menu at the cursor. Godot keeps a popup inside the window that owns it, so the menu
+    /// is moved under the overlay window of the monitor the cursor is on (and back home once closed, so it
+    /// survives the extra windows being rebuilt when monitors change).
+    /// </summary>
+    void OpenMenu(Vector2 at)
+    {
+        var host = _overlay.WindowAt(at);
+        if (_menu.GetParent() != host) _menu.Reparent(host, keepGlobalTransform: false);
+        _menu.Position = new Vector2I((int)at.X, (int)at.Y);
+        _menu.ResetSize();
+        _menu.Popup();
+    }
+
+    void ReturnMenuHome()
+    {
+        if (_menu.GetParent() != this) _menu.Reparent(this, keepGlobalTransform: false);
+    }
+
+    bool AnyMenuOpen() =>
+        _menu.Visible || (_trayMenu?.Visible ?? false) || _radioMenus.Any(r => r.menu.Visible);
+
+    void RefreshMenus()
+    {
+        foreach (var m in new[] { _menu, _trayMenu })
+        {
+            if (m == null) continue;
+            void Check(MenuId id, bool on) { int i = m.GetItemIndex((int)id); if (i >= 0) m.SetItemChecked(i, on); }
+            void Text(MenuId id, string t) { int i = m.GetItemIndex((int)id); if (i >= 0) m.SetItemText(i, t); }
+            Check(MenuId.Monitor, _config.SystemMonitor);
+            Check(MenuId.AutoWebs, _config.AutoWebs);
+            Check(MenuId.AppComments, _config.AppComments);
+            Check(MenuId.GiantWeb, _config.ScreenWebMinutes > 0);
+            Check(MenuId.Autostart, Autostart.IsEnabled());
+            Text(MenuId.Pomodoro, _reminders.PomodoroRunning ? "🍅 Parar pomodoro" : "🍅 Iniciar pomodoro");
+            Text(MenuId.Sleep, _brain.Asleep ? "☀ Acordar" : "😴 Dormir");
+        }
+        foreach (var (sub, current) in _radioMenus)
+        {
+            int value = current();
+            for (int i = 0; i < sub.ItemCount; i++)
+                sub.SetItemChecked(i, sub.GetItemId(i) == value);
+        }
+    }
+
+    void OnMenu(MenuId id)
+    {
+        switch (id)
+        {
+            case MenuId.Pomodoro:
+                if (_reminders.PomodoroRunning)
+                {
+                    _reminders.StopPomodoro();
+                    _bubble.Show("Pomodoro parado. Quando quiser, a gente recomeça!", 4);
+                }
+                else
+                {
+                    _reminders.StartPomodoro();
+                    _brain.Alert(Face.Happy);
+                    _bubble.Show($"Pomodoro iniciado: {_config.PomodoroWorkMinutes} minutos de foco! Fico de olho (nos oito). 🍅", 6);
+                }
+                break;
+            case MenuId.PomodoroStatus: _bubble.Show(_reminders.PomodoroStatus(), 5); break;
+            case MenuId.PcStatus: _bubble.Show(_monitor.Describe(), 6); break;
+            case MenuId.Upcoming: _bubble.Show(_reminders.Upcoming(), 8); break;
+            case MenuId.MakeWeb:
+                _brain.WakeUp();
+                if (_spider.State != Mode.Grounded) _bubble.Show("Deixa eu pousar primeiro!", 3);
+                else _brain.StartWeb();
+                break;
+            case MenuId.ClearWebs:
+                _webs.ClearAll();
+                _brain.OnGiantTorn();
+                _bubble.Show("Faxina feita! 🧹 Sem teias por aqui.", 3);
+                break;
+            case MenuId.AppComments:
+                _config.AppComments = !_config.AppComments;
+                _config.Save();
+                _apps.Enabled = _config.AppComments;
+                _bubble.Show(_config.AppComments
+                    ? "Vou dar uns pitacos no que você estiver fazendo. 👀"
+                    : "Tá bom, fico de quelíceras fechadas. 🤐", 4);
+                break;
+            case MenuId.GiantWeb:
+                _config.ScreenWebMinutes = _config.ScreenWebMinutes > 0 ? 0 : 5;
+                _config.Save();
+                _bubble.Show(_config.ScreenWebMinutes > 0
+                    ? "Se o mouse ficar parado 5 min, eu cubro a tela de teia. Hehe. 🕸️"
+                    : "Tá bom, nada de teia gigante.", 4);
+                break;
+            case MenuId.AutoWebs:
+                _config.AutoWebs = !_config.AutoWebs;
+                _config.Save();
+                _brain.AutoWebs = _config.AutoWebs;
+                _bubble.Show(_config.AutoWebs ? "Vou tecer umas teias de vez em quando. 🕸️" : "Combinado, só teço quando você pedir.", 4);
+                break;
+            case MenuId.Monitor: _config.SystemMonitor = !_config.SystemMonitor; _config.Save(); break;
+            case MenuId.Autostart:
+                bool on = !Autostart.IsEnabled();
+                Autostart.SetEnabled(on);
+                _bubble.Show(on ? "Combinado! Eu apareço sempre que você ligar o PC. 🕷️" : "Tá bom, não apareço mais por conta própria... só quando você me chamar.", 4);
+                break;
+            case MenuId.OpenConfig: OS.ShellOpen(Config.FilePath); break;
+            case MenuId.ReloadConfig:
+                CopyConfig(Config.Load(), _config);
+                _spider.SetPixelScale(_config.Scale);
+                _spider.SetFur(FurColors.Find(_config.FurColor));
+                UpdateTrayIcon();
+                _webs.PixelScale = _config.Scale;
+                _brain.AutoWebs = _config.AutoWebs;
+                _brain.MaxWebs = _config.MaxWebs;
+                _apps.Enabled = _config.AppComments;
+                _bubble.Show("Configurações recarregadas!", 3);
+                break;
+            case MenuId.Sleep:
+                if (_brain.Asleep) _brain.WakeUp();
+                else _bubble.Show(Lines.Pick(Lines.SleepHint), 4);
+                break;
+            case MenuId.Quit: GetTree().Quit(); break;
+        }
+    }
+
+    static void CopyConfig(Config from, Config to)
+    {
+        foreach (var p in typeof(Config).GetProperties().Where(p => p.CanWrite))
+            p.SetValue(to, p.GetValue(from));
+    }
+
+    void SetScale(int scale)
+    {
+        _config.Scale = scale;
+        _config.Save();
+        _spider.SetPixelScale(scale);
+        _webs.PixelScale = scale;
+    }
+
+    void Poke() => _bubble.Show(_brain.Poke(_overlay.CursorWorld()), 4);
+
+    // ------------------------------------------------------------------ loop & input
+
+    public override void _Process(double delta)
+    {
+        float dt = (float)delta;
+        _lastDelta = dt;
+        var cursor = _overlay.CursorWorld();
+
+        _scanTimer -= dt;
+        if (_scanTimer <= 0)
+        {
+            _scanTimer = ScanInterval;
+            _map.Rebuild(_scanner.Scan(), _overlay.WorkAreas);
+            _webs.Sync(_map);
+            _spider.Resync();
+        }
+
+        _layoutTimer -= dt;
+        if (_layoutTimer <= 0)
+        {
+            _layoutTimer = 3;
+            if (_overlay.CheckLayout())
+            {
+                _spider.SetBounds(_overlay.Bounds, PrimaryWork(), _overlay.WorkAreas);
+                _map.Rebuild(_scanner.Scan(), _overlay.WorkAreas);
+                _webs.Sync(_map);
+                _spider.Resync();
+            }
+        }
+
+        // Re-raise the overlay now and then, but never over an open menu.
+        _topmostTimer -= dt;
+        if (_topmostTimer <= 0 && !AnyMenuOpen())
+        {
+            _topmostTimer = 2;
+            _overlay.ReassertTopmost();
+        }
+
+        _fullscreenTimer -= dt;
+        if (_fullscreenTimer <= 0)
+        {
+            _fullscreenTimer = 1;
+            bool hide = _config.HideOnFullscreen && _scanner.FullscreenMonitor() is Rect2 full && full.HasPoint(_spider.BodyCenter);
+            if (hide != _hiddenForFullscreen)
+            {
+                _hiddenForFullscreen = hide;
+                _spider.Visible = !hide;
+                if (hide) _bubble.Visible = false;
+            }
+        }
+
+        double idle = Native.IdleMilliseconds() / 1000.0;
+        _reminders.Tick(delta, idle < 120);
+        _monitor.Tick(delta);
+        _apps.Tick(delta, idle, canTalk: !_hiddenForFullscreen && !_brain.Asleep && !_brain.Busy && !_shout.Visible);
+        _brain.Quiet = _apps.Quiet;
+        if (!_hiddenForFullscreen)
+            _brain.Tick(dt, cursor, idle, _config.SleepAfterIdleMinutes * 60);
+
+        PollMouse(cursor);
+        if (_dragging) _spider.DragTo(cursor);
+        _spider.Speaking = _bubble.IsTyping;
+
+        if (OS.HasEnvironment("WEBI_DEBUG") && (_debugTimer -= dt) <= 0)
+        {
+            _debugTimer = 1;
+            GD.Print($"[debug] {_spider.State} body={_spider.BodyCenter.Round()} surf={_spider.Surface} walking={_spider.IsWalking} " +
+                     $"surfaces={_map.All.Count} windows={_map.Windows.Count} face={_spider.Expression} asleep={_brain.Asleep} " +
+                     $"app={_apps.Current?.Id ?? "-"} proc={_apps.LastProcess} dwell={_apps.Dwell:0}s quiet={_apps.Quiet}");
+        }
+
+        var head = _spider.BodyCenter - new Vector2(0, 34 * _spider.PixelScale);
+        _bubble.Target = head;
+        _shout.Target = head;
+        var monitor = _overlay.MonitorAt(_spider.BodyCenter);
+        _bubble.Bounds = new Rect2(monitor.WorkArea.Position, monitor.WorkArea.Size);
+        _shout.Bounds = _bubble.Bounds;
+
+        TrackMouse(dt, cursor);
+
+        // Clicks pass through the overlay except over the spider and open UI.
+        bool interactive = _pressing || _dragging
+            || (!_hiddenForFullscreen && _spider.HitRect().HasPoint(cursor))
+            || (_bubble.Visible && _bubble.GetGlobalRect().HasPoint(cursor))
+            || (_shout.Visible && _shout.GetGlobalRect().HasPoint(cursor));
+        _overlay.UpdateClickThrough(cursor, interactive);
+    }
+
+    /// <summary>
+    /// Mouse buttons are read straight from Windows: the overlay is several OS windows and the click can land
+    /// on any of them, so per-window input events would have to be merged anyway.
+    /// </summary>
+    void PollMouse(Vector2 cursor)
+    {
+        bool left = Native.IsMouseDown(primary: true), right = Native.IsMouseDown(primary: false);
+        bool overSpider = !_hiddenForFullscreen && _spider.HitRect().HasPoint(cursor);
+
+        if (left && !_leftWasDown)
+        {
+            if (overSpider)
+            {
+                _pressing = true;
+                _pressPos = cursor;
+            }
+            else if (_bubble.Visible && _bubble.GetGlobalRect().HasPoint(cursor))
+            {
+                _bubble.Visible = false;
+            }
+            else if (_shout.Visible && _shout.GetGlobalRect().HasPoint(cursor))
+            {
+                _shout.Visible = false;
+            }
+        }
+        else if (!left && _leftWasDown && _pressing)
+        {
+            _pressing = false;
+            if (_dragging)
+            {
+                _dragging = false;
+                _spider.EndDrag(_lastDelta);
+                _brain.React(Face.Surprised, 0.8f);
+            }
+            else Poke();
+        }
+        else if (left && _pressing && !_dragging && cursor.DistanceTo(_pressPos) > 8)
+        {
+            _dragging = true;
+            _brain.WakeUp();
+            _spider.StartDrag(cursor);
+            _bubble.Show(Lines.Pick(Lines.Dragged), 1.5f);
+        }
+
+        if (right && !_rightWasDown && overSpider) OpenMenu(cursor);
+
+        // Dragging the mouse through a corner web (not while holding the spider) sweeps it away.
+        if (left && _leftWasDown && !_pressing && cursor != _lastCursor && _webs.SweptBy(_lastCursor, cursor) is { } swept)
+        {
+            bool wasHanging = _spider.HangingWeb == swept;
+            _webs.Tear(swept);
+            if (wasHanging) _spider.Fall();
+            _brain.React(Face.Sad, 2);
+            _bubble.Show(Lines.Pick(Lines.WebSwept), 3);
+        }
+
+        _leftWasDown = left;
+        _rightWasDown = right;
+    }
+
+    // ------------------------------------------------------------------ mouse idle / shaking
+
+    Vector2 _lastCursor;
+    double _mouseStill;
+    readonly System.Collections.Generic.Queue<(double t, Vector2 p)> _trail = new();
+
+    /// <summary>
+    /// Mouse still for a long time: Webi webs over the monitor under the cursor. Shaking the mouse hard
+    /// (lots of distance with several back-and-forths in under a second) tears that web down.
+    /// </summary>
+    void TrackMouse(float dt, Vector2 cursor)
+    {
+        double now = Time.GetTicksMsec() / 1000.0;
+        _mouseStill = cursor.DistanceTo(_lastCursor) > 1 ? 0 : _mouseStill + dt;
+
+        _trail.Enqueue((now, cursor));
+        while (_trail.Count > 0 && now - _trail.Peek().t > 0.8) _trail.Dequeue();
+        float length = 0;
+        int reversals = 0, lastSign = 0;
+        Vector2? prev = null;
+        foreach (var (_, p) in _trail)
+        {
+            if (prev is Vector2 q)
+            {
+                length += q.DistanceTo(p);
+                float dx = p.X - q.X;
+                if (Mathf.Abs(dx) > 6)
+                {
+                    int sign = Mathf.Sign(dx);
+                    if (lastSign != 0 && sign != lastSign) reversals++;
+                    lastSign = sign;
+                }
+            }
+            prev = p;
+        }
+        if (length > 2400 && reversals >= 4 && _webs.Giant is { } giant)
+        {
+            _webs.Tear(giant);
+            _brain.OnGiantTorn();
+            _trail.Clear();
+        }
+
+        if (_config.ScreenWebMinutes > 0 && _mouseStill > _config.ScreenWebMinutes * 60 && _webs.Giant == null && !_apps.Quiet)
+        {
+            var m = _overlay.MonitorAt(cursor);
+            if (_brain.StartGiantWeb(new Rect2(m.Bounds.Position, m.Bounds.Size))) _mouseStill = 0;
+        }
+        _lastCursor = cursor;
+    }
+}

@@ -1,0 +1,17 @@
+# Godot / .NET generated
+.godot/
+.vs/
+bin/
+obj/
+*.user
+*.tmp
+
+# Exported executable
+build/
+
+# Scratch art (old renders, test captures); keep only the source sheets the slicer needs
+art/raw/*
+!art/raw/gpt_parts.png
+!art/raw/gpt_parts.png.import
+!art/raw/gpt_anim.png
+!art/raw/gpt_anim.png.import

@@ -1,0 +1,178 @@
+# Webi 🕷️
+
+Uma aranha-saltadora chibi em pixel art que vive no desktop do Windows: anda por cima das janelas,
+contorna as bordas, escala as paredes da tela, desce por fios de teia, pula entre janelas e faz
+companhia com reações pré-programadas, lembretes, pomodoro e monitor do sistema.
+
+## Rodar
+
+- `webi.bat`: inicia direto, sem editor.
+- **Iniciar com o Windows:** opção no menu (botão direito ou bandeja). Ela grava a entrada `Webi` em
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, sem precisar de administrador, e o app mantém o
+  caminho atualizado a cada início.
+- Para desenvolver, abra a pasta no Godot 4.7 .NET ou rode `dotnet build` e depois o Godot com `--path C:\dev\webi`.
+- `WEBI_DEBUG=1` imprime o estado da aranha uma vez por segundo, no console do Godot.
+
+## Gerar o .exe
+
+```
+Godot_v4.7.2-stable_mono_win64_console.exe --headless --path C:\dev\webi --export-release "Windows Desktop" C:\dev\webi\build\Webi.exe
+```
+
+O resultado é um único `build\Webi.exe` (~190 MB, com o runtime .NET e os assets embutidos) que roda sem o
+Godot instalado. É preciso ter os templates de exportação do Godot 4.7.2 .NET em
+`%APPDATA%\Godot\export_templates\4.7.2.stable.mono`. O preset fica em `export_presets.cfg`, e o Godot
+exige o `Webi.sln` para exportar projetos C#. Ao abrir o exe, a opção "Iniciar com o Windows" (se ligada)
+passa a apontar para ele.
+
+## Teias
+
+- **Teias de canto:** a Webi tece teias nos cantos de cima da tela (onde o teto encontra a parede) e
+  nos cantos de cima de dentro das janelas. Ela vai até lá andando pelas bordas, ou pulando se o canto
+  fica em outra janela, e tece com as patas da frente, com um fio saindo do abdômen até o ponto que está
+  sendo tecido. Depois às vezes se pendura no meio da teia. Cada teia é gerada proceduralmente, com tamanho
+  (150-320 px), número de raios e anéis, fios quebrados, moldura, fios soltos e caimento próprios. As teias
+  de janela acompanham a janela, somem quando ela fecha e ficam ocultas quando outra janela as cobre.
+- **Varrer:** clicar e arrastar o mouse por cima de uma teia de canto a arrebenta. O clique continua
+  chegando ao app embaixo; as teias não bloqueiam cliques.
+- **Teia gigante:** com o mouse parado por `screen_web_minutes` (5), ela pula até o teto, desce até o
+  centro do monitor onde está o cursor, tece uma teia orbital cobrindo o monitor inteiro e dorme pendurada
+  no meio. Mexer o mouse só a acorda. A teia só sai **chacoalhando o mouse** com força (muito deslocamento
+  e várias idas e vindas em menos de 1 s); aí os fios se rompem e caem e ela despenca junto.
+- **Menu:** "Fazer uma teia", "Limpar teias", "Tecer teias por conta própria" e "Teia gigante com o mouse
+  parado". O config tem `auto_webs`, `max_webs` e `screen_web_minutes`. As teias não são salvas entre execuções.
+
+## Alertas
+
+Lembretes (água, pausa, pomodoro) e alertas do sistema (CPU, memória, bateria) são **gritados**: a Webi
+dá um superpulo até o teto, despenca pelo fio até o centro da tela e grita num balão gigante em forma de
+explosão (título enorme e uma linha de detalhe), que estoura ao aparecer e treme. Depois ela desce até o
+chão. Vários alertas seguidos formam uma fila. Avisos positivos ("esfriou", "carregando") e respostas às
+suas ações usam o balão normal. Clicar num balão o fecha.
+
+## Comentários sobre o que você está fazendo
+
+A Webi olha qual app está em primeiro plano (pelo processo) e, nos navegadores, qual site está na aba
+ativa (pelo título da janela). Depois de **1 minuto seguido no mesmo app**, e com você usando o PC, ela solta
+um comentário bem-humorado com expressão e gesto. Para não virar spam: no máximo um comentário a cada 3 min,
+e o mesmo app só volta a ser comentado depois de 20 min. Ela não comenta dormindo, em tela cheia ou durante
+um alerta.
+
+- **Grupos:** redes sociais, vídeo, música, chat, código, escritório, e-mail, jogos, design, compras, IA,
+  estudo e arquivos, cada um com 4-5 falas.
+- **Apps e sites específicos:** cerca de 50, com 3-5 falas próprias cada (Instagram, TikTok, X, Facebook,
+  Reddit, LinkedIn, YouTube, Netflix, Twitch, Spotify, WhatsApp, Discord, VS Code, Excel, Steam,
+  Minecraft, Figma, Amazon, Mercado Livre, Wikipédia, Duolingo...). Ela usa a fala específica em 60% das
+  vezes e a do grupo no resto, sem repetir as últimas.
+- **Sessões longas:** 30 min de rede social, 90 min de vídeo e 2 h de jogo geram uma cutucada com os minutos.
+- **Pomodoro:** depois de 10 min num app de trabalho sem pomodoro rodando, ela sugere ligar um.
+- **Modo silencioso:** em apps de reunião (Zoom, Teams, Google Meet, Webex, Skype) e no OBS, ela não
+  comenta, não tece a teia gigante e segura os alertas gritados até a reunião acabar.
+- Tudo fica em memória, nada é salvo nem enviado. Liga e desliga em "💬 Comentar o que estou fazendo"
+  (config `app_comments`). As falas e as regras de identificação ficam em `src/Assistant/AppCatalog.cs`.
+  Com `WEBI_DEBUG=1`, o log mostra o app identificado e o processo em primeiro plano.
+
+## Vários monitores
+
+A Webi usa todos os monitores conectados. Cada monitor tem sua própria janela transparente, e todas
+desenham o mesmo mundo. Ao chegar à divisa entre monitores, a aranha **pula** para o outro lado e continua andando e o balão aparece no monitor
+onde ela está. A borda da área de trabalho é o contorno da **união** dos monitores: onde dois monitores se
+encostam, o chão continua; onde as alturas diferem, vira degrau ou parede. Se você conectar, desconectar ou
+reorganizar monitores com o app aberto, as janelas se refazem em até 3 s. Ao entrar em tela cheia, ela só
+some se estiver no monitor do app em tela cheia. `WEBI_DEBUG=1` também lista os monitores e as bordas no início.
+
+## Interação
+
+- **Clique** na aranha: ela responde com uma fala aleatória, uma expressão e um gesto. Às vezes é um
+  cumprimento que depende da hora do dia. Clicar demais a deixa brava. **Arrastar**: ela fica pendurada no
+  cursor por um fio; ao soltar, é arremessada.
+- **Botão direito**: menu com pomodoro, "próximos lembretes", "como está o PC?", tamanho, intervalo dos
+  lembretes de água e de pausa (desligado / 15 / 30 / 45 / 60 / 90 min), monitor do sistema, config e sair.
+  Os lembretes contam só o tempo em que você está usando o PC (mouse ou teclado nos últimos 2 min), e o de
+  pausa fica em espera enquanto um pomodoro roda. O mesmo menu aparece no ícone da bandeja, e o clique esquerdo no ícone equivale a cutucar a aranha.
+- Todas as falas ficam em `src/Spider/Lines.cs`.
+- Ela dorme depois de alguns minutos sem você mexer no mouse e no teclado, e some quando um app está em tela cheia.
+
+## Cores
+
+Menu "🎨 Cor" (config `fur_color`): marrom (original), preto, branco, cinza, vermelho, amarelo, laranja,
+verde, azul, roxo e rosa. A recoloração é um **mapa de gradiente** aplicado uma vez, na troca de cor: a
+luminosidade de cada pixel do pelo escolhe uma cor numa rampa (do escuro ao claro) da pelagem. O
+sombreado se mantém e funciona até com preto, branco e cinza, que um giro de matiz não alcança. Os olhos
+têm cores próprias por pelagem (preto: aro dourado; branco: aro azul; cinza: dourado...). O
+aro é identificado pela posição (anel externo do olho), porque compartilha as cores da paleta do pelo. O
+ícone da bandeja acompanha a cor. Para criar uma cor, acrescente uma entrada em `src/Spider/FurColors.cs`.
+
+## Configuração
+
+`%APPDATA%\Godot\app_userdata\Webi\config.json` (pelo menu: *Abrir config.json* e depois *Recarregar config*):
+
+| chave | padrão | |
+|---|---|---|
+| `scale` | 2 |
+| `fur_color` | `marrom` | cor da pelagem (ver "Cores") | pixels de tela por pixel de arte |
+| `water_minutes`, `break_minutes`, `pomodoro_*` | 45, 60, 25/5 | |
+| `cpu_alert_percent`, `battery_alert_percent` | 90, 20 | |
+| `sleep_after_idle_minutes` | 5 | |
+
+## Arquitetura
+
+```
+src/Main.cs                 liga tudo; click-through dinâmico; menus
+src/Win32/Autostart.cs      "iniciar com o Windows" (chave Run do usuário)
+src/Win32/Overlay.cs        uma janela transparente por monitor (mundo 2D compartilhado), topmost, fora da taskbar,
+                            click-through por janela, detecção de mudança de monitores
+src/World/DesktopScanner.cs EnumWindows + DWM bounds (janelas visíveis, ordem Z)
+src/World/Surfaces.cs       bordas das janelas e do contorno dos monitores, recortadas pelo que está por cima e encadeadas
+src/Spider/Spider.cs        locomoção sobre bordas, pulo balístico, teia (Verlet), arrasto, pernas com IK e passada
+src/Spider/SpiderRig.cs     desenho em pixels num SubViewport de baixa resolução (corpo, olhos animados, pernas)
+src/Spider/SpiderBrain.cs   comportamento: passear, pular, descer de teia, curiosidade pelo cursor, susto, sono, cutucadas
+src/Spider/Lines.cs         todas as falas e reações pré-programadas
+src/World/Webs.cs           teias: cantos possíveis, geração procedural (canto e orbital gigante), rasgo e varredura
+src/UI/ShoutBubble.cs       balão de grito gigante dos alertas
+src/Assistant/*             lembretes/pomodoro, monitor do sistema, app em primeiro plano (AppWatcher + AppCatalog)
+```
+
+## Arte
+
+As partes da aranha (3 poses de corpo, 4 coxas, 4 canelas, pedipalpos e 6 olhos) foram geradas
+numa prancha pelo GPT Image, usando o render do ComfyUI como referência. Depois foram recortadas e
+reduzidas a pixel art com paleta comum por:
+
+```
+python tools/slice_parts.py art/raw/gpt_parts.png art/raw/gpt_anim.png art/parts
+```
+
+O script limpa a franja vermelha da exportação transparente, endireita as pernas (PCA) e gera os PNGs
+em `art/parts/` mais o `parts.json` (pivôs, comprimentos dos segmentos, posição dos olhos). O rig
+posiciona coxa e canela de cada perna com IK, troca o corpo entre normal, achatado e esticado e alterna
+os sprites de olho para piscar e mostrar expressões. Para trocar a arte, gere uma prancha nova no mesmo
+layout e rode o script de novo. Comprimentos e espessuras das pernas ficam no topo do script.
+
+Depuração visual: `WEBI_SNAPSHOT=<pasta>` salva quadros do rig em PNG (`WEBI_SNAPSHOT_FPS` e
+`WEBI_SNAPSHOT_MAX` controlam frequência e quantidade). `WEBI_DEMO=1` troca o comportamento por uma
+sequência fixa de todas as animações: aceno, limpeza, bater o pé, espreguiçar, dança, andar, correr
+e pular.
+
+## Animação
+
+- **Locomoção:** ciclo de passada em onda de trás para frente (L4 R2 → L3 R1 → L2 R4 → L1 R3), com
+  sempre só 2 patas no ar e 6 apoiadas. O ciclo é guiado pela distância percorrida, e a passada fica
+  mais longa e mais alta quanto maior a velocidade. A pata se estica para fora no meio do passo.
+  Às vezes ela dá uma corridinha rápida. Ao parar, as patas se reacomodam uma por vez.
+  `WEBI_GAIT_LOG=1` imprime quais patas estão no ar em cada quadro.
+- **Corpo:** balança como mola ao arrancar e parar, inclina na direção do movimento e respira
+  quando está parada.
+- **Olhos:** sempre acompanham o cursor (menos dormindo).
+- **Gestos:** aceno (para o cursor e ao ser cutucada), limpeza dos pedipalpos, bater o pé
+  (impaciente), espreguiçar (ao acordar) e dança (pomodoro e alertas felizes). As patas
+  dos gestos seguem um arco em volta do quadril, para nunca cruzarem o rosto.
+- **Pulo:** agachamento proporcional à distância, pernas recolhidas na subida e abertas na descida,
+  inclinação conforme a velocidade, giro antecipado para a superfície de pouso e pernas abertas no impacto.
+- **Tecendo:** ela percorre a teia de verdade. Estica cada raio com o fio saindo do abdômen, volta pelo
+  caminho, faz a moldura e os anéis de dentro para fora, com as patas trabalhando no ritmo do movimento.
+  Depois se pendura no centro.
+- **Sempre na tela:** o corpo nunca sai da área visível dos monitores (pendurada na borda, tecendo num
+  canto, sendo arremessada...). Só atravessa a divisa entre dois monitores encostados.
+- **Teia:** pernas abertas na descida, remando devagar quando parada e puxando o fio com as patas
+  da frente na subida.
