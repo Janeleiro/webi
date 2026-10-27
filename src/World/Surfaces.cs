@@ -54,11 +54,18 @@ public sealed class SurfaceMap
     /// <summary>Clearance the spider needs on the normal side of an edge for it to be usable.</summary>
     const float Clearance = 14f;
 
-    public void Rebuild(IReadOnlyList<DesktopWindow> windows, IReadOnlyList<Rect2> workAreas)
+    readonly List<Rect2> _workAreas = new();
+
+    /// <summary>Rebuilds the edges, unless the windows and work areas are exactly as last time (most scans).</summary>
+    /// <returns>True if anything changed.</returns>
+    public bool Rebuild(IReadOnlyList<DesktopWindow> windows, IReadOnlyList<Rect2> workAreas)
     {
+        if (Unchanged(windows, workAreas)) return false;
         All.Clear();
         Windows.Clear();
         Windows.AddRange(windows);
+        _workAreas.Clear();
+        _workAreas.AddRange(workAreas);
 
         // Windows come top-most first: window i is occluded by windows 0..i-1.
         for (int i = 0; i < windows.Count; i++)
@@ -76,6 +83,17 @@ public sealed class SurfaceMap
                 screen.AddRange(list);
         LinkByEndpoints(screen);
         All.AddRange(screen);
+        return true;
+    }
+
+    /// <summary>Same windows in the same Z-order and places (titles don't matter for the edges).</summary>
+    bool Unchanged(IReadOnlyList<DesktopWindow> windows, IReadOnlyList<Rect2> workAreas)
+    {
+        if (All.Count == 0 || windows.Count != Windows.Count || !workAreas.SequenceEqual(_workAreas)) return false;
+        for (int i = 0; i < windows.Count; i++)
+            if (windows[i].Handle != Windows[i].Handle || windows[i].Rect != Windows[i].Rect
+                || windows[i].CoversMonitor != Windows[i].CoversMonitor) return false;
+        return true;
     }
 
     static (Vector2 a, Vector2 b, Vector2 n, EdgeSide side)[] OuterEdges(Rect2 r)

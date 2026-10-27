@@ -7,9 +7,10 @@ public enum ReminderKind { Water, Break, Pomodoro }
 /// <summary>
 /// Something Webi has to tell. <see cref="Shout"/> notices are alerts: Webi drops down to the middle of the
 /// screen and shouts <see cref="Title"/> in a huge bubble, with <see cref="Detail"/> underneath.
-/// Other notices go in the regular speech bubble.
+/// Other notices go in the regular speech bubble. <see cref="Snooze"/> is the reminder that the shout bubble
+/// offers to postpone, if any.
 /// </summary>
-public readonly record struct Notice(string Title, string Detail, bool Shout = true, bool Happy = false)
+public readonly record struct Notice(string Title, string Detail, bool Shout = true, bool Happy = false, ReminderKind? Snooze = null)
 {
     public string Plain => $"{Title} {Detail}".Trim();
 }
@@ -40,12 +41,12 @@ public sealed class Reminders
         if (_config.WaterReminder && _waterElapsed >= _config.WaterMinutes * 60)
         {
             _waterElapsed = 0;
-            Fired?.Invoke(ReminderKind.Water, new Notice("ÁGUAAAA!!! 💧", "Hora de beber água! Até aranhas precisam se hidratar."));
+            Fired?.Invoke(ReminderKind.Water, new Notice("ÁGUAAAA!!! 💧", "Hora de beber água! Até aranhas precisam se hidratar.", Snooze: ReminderKind.Water));
         }
         if (_config.BreakReminder && _breakElapsed >= _config.BreakMinutes * 60 && !PomodoroRunning)
         {
             _breakElapsed = 0;
-            Fired?.Invoke(ReminderKind.Break, new Notice("PAUSA!!! 🧘", "Levanta e estica as pernas! Eu estico as minhas oito."));
+            Fired?.Invoke(ReminderKind.Break, new Notice("PAUSA!!! 🧘", "Levanta e estica as pernas! Eu estico as minhas oito.", Snooze: ReminderKind.Break));
         }
 
         if (PomodoroRunning && DateTime.Now >= PomodoroEnds)
@@ -73,6 +74,15 @@ public sealed class Reminders
     }
 
     public void StopPomodoro() => PomodoroRunning = false;
+
+    public const int SnoozeMinutes = 10;
+
+    /// <summary>Fires the water or break reminder again after <see cref="SnoozeMinutes"/> more minutes of use.</summary>
+    public void Snooze(ReminderKind kind)
+    {
+        if (kind == ReminderKind.Water) _waterElapsed = Math.Max(0, _config.WaterMinutes - SnoozeMinutes) * 60;
+        else if (kind == ReminderKind.Break) _breakElapsed = Math.Max(0, _config.BreakMinutes - SnoozeMinutes) * 60;
+    }
 
     /// <summary>Restart the water countdown (after its interval changed).</summary>
     public void ResetWater() => _waterElapsed = 0;

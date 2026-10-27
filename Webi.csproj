@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The unit tests are their own project (tests/Webi.Tests). -->
+    <Compile Remove="tests/**" />
+  </ItemGroup>
 </Project>

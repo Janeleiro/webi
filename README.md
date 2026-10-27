@@ -10,8 +10,21 @@ companhia com reações pré-programadas, lembretes, pomodoro e monitor do siste
 - **Iniciar com o Windows:** opção no menu (botão direito ou bandeja). Ela grava a entrada `Webi` em
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, sem precisar de administrador, e o app mantém o
   caminho atualizado a cada início.
+- Só abre uma Webi por vez: abrir de novo (pelo autostart e à mão, por exemplo) não cria uma segunda aranha.
 - Para desenvolver, abra a pasta no Godot 4.7 .NET ou rode `dotnet build` e depois o Godot com `--path C:\dev\webi`.
 - `WEBI_DEBUG=1` imprime o estado da aranha uma vez por segundo, no console do Godot.
+- Para economizar, ela roda a 60 FPS e cai para 15 FPS dormindo ou escondida, voltando na hora a 60 com
+  qualquer movimento do mouse ou tecla.
+
+## Testes
+
+```
+dotnet test tests\Webi.Tests
+```
+
+Testes xUnit da lógica que não depende do motor: config, lembretes e adiamento, identificação de apps e
+bordas das janelas (`SurfaceMap`). O projeto de testes fica fora do build do Godot (`.gdignore` e
+`Compile Remove` no `Webi.csproj`).
 
 ## Gerar o .exe
 
@@ -40,7 +53,7 @@ passa a apontar para ele.
   no meio. Mexer o mouse só a acorda. A teia só sai **chacoalhando o mouse** com força (muito deslocamento
   e várias idas e vindas em menos de 1 s); aí os fios se rompem e caem e ela despenca junto.
 - **Menu:** "Fazer uma teia", "Limpar teias", "Tecer teias por conta própria" e "Teia gigante com o mouse
-  parado". O config tem `auto_webs`, `max_webs` e `screen_web_minutes`. As teias não são salvas entre execuções.
+  parado" (desligado / 2 / 5 / 10 / 15 / 30 min). O config tem `auto_webs`, `max_webs` e `screen_web_minutes`. As teias não são salvas entre execuções.
 
 ## Alertas
 
@@ -48,7 +61,14 @@ Lembretes (água, pausa, pomodoro) e alertas do sistema (CPU, memória, bateria)
 dá um superpulo até o teto, despenca pelo fio até o centro da tela e grita num balão gigante em forma de
 explosão (título enorme e uma linha de detalhe), que estoura ao aparecer e treme. Depois ela desce até o
 chão. Vários alertas seguidos formam uma fila. Avisos positivos ("esfriou", "carregando") e respostas às
-suas ações usam o balão normal. Clicar num balão o fecha.
+suas ações usam o balão normal. Clicar num balão o fecha. Os lembretes de água e de pausa trazem um botão
+**⏰ Adiar 10 min**, que os faz voltar depois de mais 10 min de uso do PC.
+
+**Não perturbe:** com o "Não perturbe"/Assistente de foco do Windows ligado, em modo de apresentação ou no
+período de silêncio logo após instalar o Windows, ela segura os alertas gritados, não comenta os apps e não
+tece a teia gigante, como no modo silencioso das reuniões. O "Não perturbe" é lido de um estado interno
+(WNF) do Windows, que não é documentado: se a leitura falhar, vale só a API oficial
+(`SHQueryUserNotificationState`). Com `WEBI_DEBUG=1`, o log mostra `dnd=` e o que foi lido.
 
 ## Comentários sobre o que você está fazendo
 
@@ -88,6 +108,8 @@ some se estiver no monitor do app em tela cheia. `WEBI_DEBUG=1` também lista os
   cursor por um fio; ao soltar, é arremessada.
 - **Botão direito**: menu com pomodoro, "próximos lembretes", "como está o PC?", tamanho, intervalo dos
   lembretes de água e de pausa (desligado / 15 / 30 / 45 / 60 / 90 min), monitor do sistema, config e sair.
+  Em **🔧 Ajustes**: tempo até dormir, limite do alerta de CPU, limite do alerta de bateria (só com bateria)
+  e "Sumir com app em tela cheia". Com um pomodoro rodando, o tooltip da bandeja mostra o tempo que falta.
   Os lembretes contam só o tempo em que você está usando o PC (mouse ou teclado nos últimos 2 min), e o de
   pausa fica em espera enquanto um pomodoro roda. O mesmo menu aparece no ícone da bandeja, e o clique esquerdo no ícone equivale a cutucar a aranha.
 - Todas as falas ficam em `src/Spider/Lines.cs`.
@@ -109,11 +131,16 @@ aro é identificado pela posição (anel externo do olho), porque compartilha as
 
 | chave | padrão | |
 |---|---|---|
-| `scale` | 2 |
-| `fur_color` | `marrom` | cor da pelagem (ver "Cores") | pixels de tela por pixel de arte |
-| `water_minutes`, `break_minutes`, `pomodoro_*` | 45, 60, 25/5 | |
+| `scale` | 2 | pixels de tela por pixel de arte (1-8) |
+| `fur_color` | `marrom` | cor da pelagem (ver "Cores") |
+| `water_minutes`, `break_minutes`, `pomodoro_*` | 45, 60, 25/5 | mínimo de 1 min |
 | `cpu_alert_percent`, `battery_alert_percent` | 90, 20 | |
 | `sleep_after_idle_minutes` | 5 | |
+| `hide_on_fullscreen` | `true` | sumir com app em tela cheia |
+
+Valores fora da faixa são corrigidos ao carregar (um lembrete de 0 min, por exemplo, vira 1 min). Se o
+arquivo tiver um erro de JSON, ela avisa, usa os padrões e **não grava nada** até o arquivo ser consertado
+e recarregado, para não apagar o que você escreveu.
 
 ## Arquitetura
 
@@ -124,13 +151,17 @@ src/Win32/Overlay.cs        uma janela transparente por monitor (mundo 2D compar
                             click-through por janela, detecção de mudança de monitores
 src/World/DesktopScanner.cs EnumWindows + DWM bounds (janelas visíveis, ordem Z)
 src/World/Surfaces.cs       bordas das janelas e do contorno dos monitores, recortadas pelo que está por cima e encadeadas
-src/Spider/Spider.cs        locomoção sobre bordas, pulo balístico, teia (Verlet), arrasto, pernas com IK e passada
+src/Win32/DoNotDisturb.cs   "Não perturbe" / apresentação do Windows
+src/Win32/SingleInstance.cs uma Webi por vez (mutex)
+src/Spider/Spider*.cs       a aranha, em partes: estado e comandos (Spider.cs), simulação de andar, pular e fio
+                            (Motion), corpo e gestos (Visuals), pernas com IK e passada (Legs)
 src/Spider/SpiderRig.cs     desenho em pixels num SubViewport de baixa resolução (corpo, olhos animados, pernas)
 src/Spider/SpiderBrain.cs   comportamento: passear, pular, descer de teia, curiosidade pelo cursor, susto, sono, cutucadas
 src/Spider/Lines.cs         todas as falas e reações pré-programadas
 src/World/Webs.cs           teias: cantos possíveis, geração procedural (canto e orbital gigante), rasgo e varredura
 src/UI/ShoutBubble.cs       balão de grito gigante dos alertas
 src/Assistant/*             lembretes/pomodoro, monitor do sistema, app em primeiro plano (AppWatcher + AppCatalog)
+tests/Webi.Tests            testes xUnit
 ```
 
 ## Arte

@@ -16,6 +16,7 @@ public partial class ShoutBubble : Control
 
     readonly Label _title = new();
     readonly Label _detail = new();
+    readonly Label _snooze = new();
     readonly VBoxContainer _box = new();
     float _time, _hideTimer;
     Vector2[] _burst = System.Array.Empty<Vector2>();
@@ -23,6 +24,9 @@ public partial class ShoutBubble : Control
 
     public Vector2 Target;
     public Rect2 Bounds;
+
+    /// <summary>The reminder the "snooze" button postpones, while one is shown.</summary>
+    public ReminderKind? Snoozable { get; private set; }
 
     public override void _Ready()
     {
@@ -44,9 +48,23 @@ public partial class ShoutBubble : Control
         _detail.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _detail.CustomMinimumSize = new Vector2(420, 0);
 
+        // A pill button under the text; clicks are polled from Windows (see Main), so it's only a label.
+        _snooze.Text = $"⏰ Adiar {Reminders.SnoozeMinutes} min";
+        _snooze.AddThemeFontOverride("font", PixelTheme.RoundFont(weight: 800));
+        _snooze.AddThemeFontSizeOverride("font_size", 20);
+        _snooze.AddThemeColorOverride("font_color", Burst);
+        _snooze.AddThemeStyleboxOverride("normal", new StyleBoxFlat
+        {
+            BgColor = Ink,
+            CornerRadiusTopLeft = 14, CornerRadiusTopRight = 14, CornerRadiusBottomLeft = 14, CornerRadiusBottomRight = 14,
+            ContentMarginLeft = 18, ContentMarginRight = 18, ContentMarginTop = 6, ContentMarginBottom = 6,
+        });
+        _snooze.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
+
         _box.AddThemeConstantOverride("separation", 4);
         _box.AddChild(_title);
         _box.AddChild(_detail);
+        _box.AddChild(_snooze);
         AddChild(_box);
     }
 
@@ -55,6 +73,8 @@ public partial class ShoutBubble : Control
         _title.Text = notice.Title;
         _detail.Text = notice.Detail;
         _detail.Visible = notice.Detail.Length > 0;
+        Snoozable = notice.Snooze;
+        _snooze.Visible = notice.Snooze != null;
         _box.ResetSize();
         var content = _box.GetCombinedMinimumSize();
         // Room around the text for the spikes.
@@ -68,6 +88,8 @@ public partial class ShoutBubble : Control
         _hideTimer = seconds;
         Visible = true;
     }
+
+    public bool OverSnooze(Vector2 point) => Visible && _snooze.Visible && _snooze.GetGlobalRect().HasPoint(point);
 
     /// <summary>A jagged starburst around the text, snapped to a coarse grid so it reads as pixel art.</summary>
     void BuildBurst()

@@ -186,6 +186,17 @@ public static class Native
     [DllImport("dwmapi.dll")]
     public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
 
+    public const int QUNS_PRESENTATION_MODE = 4;
+    public const int QUNS_QUIET_TIME = 6;
+
+    [DllImport("shell32.dll")]
+    public static extern int SHQueryUserNotificationState(out int state);
+
+    /// <summary>Undocumented, but the only way to read the Focus Assist / Do Not Disturb profile.</summary>
+    [DllImport("ntdll.dll")]
+    public static extern int NtQueryWnfStateData(ref ulong stateName, IntPtr typeId, IntPtr explicitScope,
+        out uint changeStamp, out int buffer, ref uint bufferSize);
+
     public static long GetExStyle(IntPtr hwnd) => GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
 
     public static void SetExStyle(IntPtr hwnd, long style) => SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(style));

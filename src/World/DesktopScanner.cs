@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using Godot;
 using Webi.Win32;
@@ -22,7 +21,7 @@ public sealed class DesktopScanner
     readonly Overlay _overlay;
     readonly List<DesktopWindow> _result = new();
     readonly HashSet<IntPtr> _own = new();
-    readonly Dictionary<uint, string> _processNames = new();
+    readonly ProcessNames _processNames = new();
     bool _avoidFullscreen;
 
     /// <summary>Monitors (indices into <see cref="Overlay.Monitors"/>) taken by a fullscreen app (game, video) in the last scan.</summary>
@@ -82,25 +81,7 @@ public sealed class DesktopScanner
     static bool HasCaption(IntPtr hwnd) =>
         (Native.GetWindowLongPtr(hwnd, Native.GWL_STYLE).ToInt64() & Native.WS_CAPTION) == Native.WS_CAPTION;
 
-    bool IsRemoteDesktop(IntPtr hwnd)
-    {
-        Native.GetWindowThreadProcessId(hwnd, out uint pid);
-        if (!_processNames.TryGetValue(pid, out var name))
-        {
-            try
-            {
-                using var process = Process.GetProcessById((int)pid);
-                name = process.ProcessName;
-            }
-            catch (Exception)
-            {
-                name = ""; // elevated or already gone
-            }
-            if (_processNames.Count > 500) _processNames.Clear();
-            _processNames[pid] = name;
-        }
-        return RemoteDesktopProcesses.Contains(name);
-    }
+    bool IsRemoteDesktop(IntPtr hwnd) => RemoteDesktopProcesses.Contains(_processNames.Of(hwnd));
 
     /// <summary>The monitor (world rect) fully covered by the foreground app (game, video, presentation), if any.</summary>
     public Rect2? FullscreenMonitor()

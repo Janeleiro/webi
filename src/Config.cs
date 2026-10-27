@@ -51,24 +51,53 @@ public sealed class Config
 
     public static string FilePath => ProjectSettings.GlobalizePath("user://config.json");
 
+    /// <summary>
+    /// Why the file couldn't be read (invalid JSON), or null. The defaults are used meanwhile and nothing is
+    /// saved, so the file the user is fixing isn't overwritten.
+    /// </summary>
+    [JsonIgnore]
+    public string? LoadError { get; private set; }
+
     public static Config Load()
     {
+        if (!File.Exists(FilePath))
+        {
+            var fresh = new Config();
+            fresh.Save();
+            return fresh;
+        }
         try
         {
-            if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<Config>(File.ReadAllText(FilePath), Json) ?? new Config();
+            var config = JsonSerializer.Deserialize<Config>(File.ReadAllText(FilePath), Json) ?? new Config();
+            config.Validate();
+            return config;
         }
         catch (Exception e)
         {
+            // The file is left untouched so a typo doesn't cost the user their settings.
             GD.PushWarning($"config.json inválido, usando padrões: {e.Message}");
+            return new Config { LoadError = e.Message };
         }
-        var config = new Config();
-        config.Save();
-        return config;
+    }
+
+    /// <summary>Brings hand-edited values back into a usable range (a 0-minute reminder would fire every frame).</summary>
+    public void Validate()
+    {
+        Scale = Math.Clamp(Scale, 1, 8);
+        WaterMinutes = Math.Clamp(WaterMinutes, 1, 24 * 60);
+        BreakMinutes = Math.Clamp(BreakMinutes, 1, 24 * 60);
+        PomodoroWorkMinutes = Math.Clamp(PomodoroWorkMinutes, 1, 240);
+        PomodoroBreakMinutes = Math.Clamp(PomodoroBreakMinutes, 1, 120);
+        MaxWebs = Math.Clamp(MaxWebs, 0, 50);
+        ScreenWebMinutes = Math.Clamp(ScreenWebMinutes, 0, 24 * 60);
+        CpuAlertPercent = Math.Clamp(CpuAlertPercent, 30, 100);
+        BatteryAlertPercent = Math.Clamp(BatteryAlertPercent, 1, 99);
+        SleepAfterIdleMinutes = Math.Clamp(SleepAfterIdleMinutes, 1, 24 * 60);
     }
 
     public void Save()
     {
+        if (LoadError != null) return;
         try
         {
             File.WriteAllText(FilePath, JsonSerializer.Serialize(this, Json));

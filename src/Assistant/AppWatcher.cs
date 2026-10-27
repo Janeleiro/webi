@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using Godot;
 using Webi.Spider;
@@ -23,7 +22,7 @@ public sealed class AppWatcher
     const double PomodoroCooldown = 60 * 60;
 
     readonly Overlay _overlay;
-    readonly Dictionary<uint, string> _processNames = new();
+    readonly ProcessNames _processNames = new();
     readonly Dictionary<string, double> _lastCommentByApp = new();
     readonly Queue<string> _recentLines = new();
     readonly RandomNumberGenerator _rng = new();
@@ -57,7 +56,7 @@ public sealed class AppWatcher
         var fg = Native.GetForegroundWindow();
         // Clicking Webi focuses her own windows: keep the previous app in that case.
         if (fg == IntPtr.Zero || _overlay.Handles.Contains(fg)) return;
-        var process = ProcessName(fg);
+        var process = _processNames.Of(fg);
         LastProcess = process;
         var app = AppCatalog.Identify(process, Native.GetTitle(fg));
         if (app?.Id != Current?.Id)
@@ -117,23 +116,5 @@ public sealed class AppWatcher
         _recentLines.Enqueue(line);
         while (_recentLines.Count > 12) _recentLines.Dequeue();
         return line;
-    }
-
-    string ProcessName(IntPtr hwnd)
-    {
-        Native.GetWindowThreadProcessId(hwnd, out uint pid);
-        if (_processNames.TryGetValue(pid, out var name)) return name;
-        try
-        {
-            using var process = Process.GetProcessById((int)pid);
-            name = process.ProcessName;
-        }
-        catch (Exception)
-        {
-            name = ""; // elevated or already gone
-        }
-        if (_processNames.Count > 500) _processNames.Clear();
-        _processNames[pid] = name;
-        return name;
     }
 }

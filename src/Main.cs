@@ -23,6 +23,7 @@ public partial class Main : Node2D
     Reminders _reminders = null!;
     SystemMonitor _monitor = null!;
     AppWatcher _apps = null!;
+    readonly DoNotDisturb _dnd = new();
 
     SpeechBubble _bubble = null!;
     ShoutBubble _shout = null!;
@@ -31,9 +32,11 @@ public partial class Main : Node2D
     /// <summary>Radio submenus (size, reminder intervals) and how to read their current value, for refreshing the checks.</summary>
     readonly System.Collections.Generic.List<(PopupMenu menu, System.Func<int> current)> _radioMenus = new();
     PopupMenu? _trayMenu;
+    /// <summary>Menus with check items and labels to refresh: the main one, the tray one and their settings submenus.</summary>
+    readonly System.Collections.Generic.List<PopupMenu> _checkMenus = new();
     StatusIndicator? _tray;
 
-    float _scanTimer, _topmostTimer, _fullscreenTimer, _layoutTimer, _debugTimer;
+    float _scanTimer, _topmostTimer, _fullscreenTimer, _layoutTimer, _debugTimer, _tooltipTimer;
     /// <summary>Out of sight: behind a fullscreen app, or parked with no floor anywhere.</summary>
     bool _hidden;
     bool _fullscreenHide;
@@ -42,14 +45,33 @@ public partial class Main : Node2D
     float _lastDelta = 1 / 60f;
     bool _greeted;
 
-    enum MenuId { Pomodoro, PomodoroStatus, Upcoming, PcStatus, AppComments, MakeWeb, ClearWebs, AutoWebs, GiantWeb, Monitor, Autostart, OpenConfig, ReloadConfig, DebugRestart, OpenLog, Sleep, Quit }
+    enum MenuId { Pomodoro, PomodoroStatus, Upcoming, PcStatus, AppComments, MakeWeb, ClearWebs, AutoWebs, Monitor, Autostart, HideOnFullscreen, OpenConfig, ReloadConfig, DebugRestart, OpenLog, Sleep, Quit }
 
     static readonly int[] ReminderIntervals = { 15, 30, 45, 60, 90 };
+    static readonly int[] GiantWebMinutes = { 2, 5, 10, 15, 30 };
+    static readonly int[] SleepMinutes = { 2, 5, 10, 15, 30 };
+    static readonly int[] CpuAlerts = { 80, 85, 90, 95 };
+    static readonly int[] BatteryAlerts = { 10, 15, 20, 30 };
+
+    /// <summary>Frame rate while something is going on, and while asleep or out of sight with the mouse still.</summary>
+    const int ActiveFps = 60, RestingFps = 15;
     /// <summary>Ids of the submenu entries, clear of every <see cref="MenuId"/>.</summary>
     const int SubmenuId = 100;
 
     public override void _Ready()
     {
+        // A restart of itself waits for the old instance to let go; any other second start just leaves.
+        bool restarting = OS.HasEnvironment("WEBI_RESTARTING");
+        OS.UnsetEnvironment("WEBI_RESTARTING");
+        if (!SingleInstance.Acquire(System.TimeSpan.FromSeconds(restarting ? 10 : 0)))
+        {
+            GD.Print("A Webi já está aberta; saindo.");
+            SetProcess(false);
+            GetTree().Quit();
+            return;
+        }
+
+        Engine.MaxFps = ActiveFps;
         _config = Config.Load();
         _overlay.Setup(this);
         _scanner = new DesktopScanner(_overlay);
@@ -152,8 +174,10 @@ public partial class Main : Node2D
         _greeted = true;
         _brain.React(Face.Happy, 2);
         _brain.Greet(_overlay.CursorWorld());
-        _bubble.Show(Lines.FirstHello, 7);
+        _bubble.Show(_config.LoadError != null ? ConfigErrorText : Lines.FirstHello, 7);
     }
+
+    const string ConfigErrorText = "O config.json tem um erro, então tô usando o padrão (e não mexo no arquivo até você consertar e recarregar). 🛠️";
 
     // ------------------------------------------------------------------ UI
 
@@ -177,6 +201,7 @@ public partial class Main : Node2D
         // Don't set AlwaysOnTop on them: Godot can't make an on-top window transient, and the submenus then
         // fail to open and take the whole menu down.
         var menu = new PopupMenu();
+        _checkMenus.Add(menu);
         menu.AddItem("🍅 Iniciar pomodoro", (int)MenuId.Pomodoro);
         menu.AddItem("⏱ Status do pomodoro", (int)MenuId.PomodoroStatus);
         menu.AddItem("⏰ Próximos lembretes", (int)MenuId.Upcoming);
@@ -199,10 +224,13 @@ public partial class Main : Node2D
         menu.AddItem("🕸️ Fazer uma teia", (int)MenuId.MakeWeb);
         menu.AddItem("🧹 Limpar teias", (int)MenuId.ClearWebs);
         menu.AddCheckItem("🕷️ Tecer teias por conta própria", (int)MenuId.AutoWebs);
-        menu.AddCheckItem("🕸️ Teia gigante com o mouse parado", (int)MenuId.GiantWeb);
+        menu.AddSubmenuNodeItem("🕸️ Teia gigante com o mouse parado",
+            RadioMenu(new[] { ("Desligado", 0) }.Concat(GiantWebMinutes.Select(m => ($"Depois de {m} min", m))),
+                () => _config.ScreenWebMinutes, SetGiantWeb), SubmenuId + 4);
         menu.AddSeparator();
         menu.AddCheckItem("📊 Monitor do sistema", (int)MenuId.Monitor);
         menu.AddCheckItem("🚀 Iniciar com o Windows", (int)MenuId.Autostart);
+        menu.AddSubmenuNodeItem("🔧 Ajustes", SettingsMenu(), SubmenuId + 5);
         menu.AddSeparator();
         menu.AddItem("⚙ Abrir config.json", (int)MenuId.OpenConfig);
         menu.AddItem("🔄 Recarregar config", (int)MenuId.ReloadConfig);
@@ -218,6 +246,59 @@ public partial class Main : Node2D
         };
         menu.AboutToPopup += RefreshMenus;
         return menu;
+    }
+
+    /// <summary>The less used settings that used to need config.json: sleep, alert thresholds, fullscreen.</summary>
+    PopupMenu SettingsMenu()
+    {
+        var menu = new PopupMenu();
+        _checkMenus.Add(menu);
+        menu.AddSubmenuNodeItem("😴 Dormir sem uso",
+            RadioMenu(SleepMinutes.Select(m => ($"Depois de {m} min", m)), () => _config.SleepAfterIdleMinutes, SetSleep), SubmenuId);
+        menu.AddSubmenuNodeItem("🔥 Alerta de CPU",
+            RadioMenu(CpuAlerts.Select(n => ($"Acima de {n}%", n)), () => _config.CpuAlertPercent, SetCpuAlert), SubmenuId + 1);
+        if (_monitor.HasBattery)
+            menu.AddSubmenuNodeItem("🔋 Alerta de bateria",
+                RadioMenu(BatteryAlerts.Select(n => ($"Abaixo de {n}%", n)), () => _config.BatteryAlertPercent, SetBatteryAlert), SubmenuId + 2);
+        menu.AddCheckItem("🙈 Sumir com app em tela cheia", (int)MenuId.HideOnFullscreen);
+        menu.IdPressed += id =>
+        {
+            if (id >= SubmenuId) return;
+            OnMenu((MenuId)(int)id);
+            RefreshMenus();
+        };
+        menu.AboutToPopup += RefreshMenus;
+        return menu;
+    }
+
+    void SetGiantWeb(int minutes)
+    {
+        _config.ScreenWebMinutes = minutes;
+        _config.Save();
+        _bubble.Show(minutes > 0
+            ? $"Se o mouse ficar parado {minutes} min, eu cubro a tela de teia. Hehe. 🕸️"
+            : "Tá bom, nada de teia gigante.", 4);
+    }
+
+    void SetSleep(int minutes)
+    {
+        _config.SleepAfterIdleMinutes = minutes;
+        _config.Save();
+        _bubble.Show($"Combinado: depois de {minutes} min sem você mexer no PC eu tiro um cochilo. 😴", 4);
+    }
+
+    void SetCpuAlert(int percent)
+    {
+        _config.CpuAlertPercent = percent;
+        _config.Save();
+        _bubble.Show($"Eu grito se a CPU passar de {percent}% por um tempinho. 🔥", 4);
+    }
+
+    void SetBatteryAlert(int percent)
+    {
+        _config.BatteryAlertPercent = percent;
+        _config.Save();
+        _bubble.Show($"Eu aviso quando a bateria cair para {percent}%. 🔋", 4);
     }
 
     PopupMenu RadioMenu(System.Collections.Generic.IEnumerable<(string label, int id)> items, System.Func<int> current, System.Action<int> apply)
@@ -316,15 +397,14 @@ public partial class Main : Node2D
 
     void RefreshMenus()
     {
-        foreach (var m in new[] { _menu, _trayMenu })
+        foreach (var m in _checkMenus)
         {
-            if (m == null) continue;
             void Check(MenuId id, bool on) { int i = m.GetItemIndex((int)id); if (i >= 0) m.SetItemChecked(i, on); }
             void Text(MenuId id, string t) { int i = m.GetItemIndex((int)id); if (i >= 0) m.SetItemText(i, t); }
             Check(MenuId.Monitor, _config.SystemMonitor);
             Check(MenuId.AutoWebs, _config.AutoWebs);
             Check(MenuId.AppComments, _config.AppComments);
-            Check(MenuId.GiantWeb, _config.ScreenWebMinutes > 0);
+            Check(MenuId.HideOnFullscreen, _config.HideOnFullscreen);
             Check(MenuId.Autostart, Autostart.IsEnabled());
             Text(MenuId.Pomodoro, _reminders.PomodoroRunning ? "🍅 Parar pomodoro" : "🍅 Iniciar pomodoro");
             Text(MenuId.Sleep, _brain.Asleep ? "☀ Acordar" : "😴 Dormir");
@@ -375,12 +455,12 @@ public partial class Main : Node2D
                     ? "Vou dar uns pitacos no que você estiver fazendo. 👀"
                     : "Tá bom, fico de quelíceras fechadas. 🤐", 4);
                 break;
-            case MenuId.GiantWeb:
-                _config.ScreenWebMinutes = _config.ScreenWebMinutes > 0 ? 0 : 5;
+            case MenuId.HideOnFullscreen:
+                _config.HideOnFullscreen = !_config.HideOnFullscreen;
                 _config.Save();
-                _bubble.Show(_config.ScreenWebMinutes > 0
-                    ? "Se o mouse ficar parado 5 min, eu cubro a tela de teia. Hehe. 🕸️"
-                    : "Tá bom, nada de teia gigante.", 4);
+                _bubble.Show(_config.HideOnFullscreen
+                    ? "Quando um jogo ou vídeo ocupar a tela, eu saio de fininho. 🙈"
+                    : "Vou ficar por aqui até em tela cheia! 👀", 4);
                 break;
             case MenuId.AutoWebs:
                 _config.AutoWebs = !_config.AutoWebs;
@@ -388,7 +468,13 @@ public partial class Main : Node2D
                 _brain.AutoWebs = _config.AutoWebs;
                 _bubble.Show(_config.AutoWebs ? "Vou tecer umas teias de vez em quando. 🕸️" : "Combinado, só teço quando você pedir.", 4);
                 break;
-            case MenuId.Monitor: _config.SystemMonitor = !_config.SystemMonitor; _config.Save(); break;
+            case MenuId.Monitor:
+                _config.SystemMonitor = !_config.SystemMonitor;
+                _config.Save();
+                _bubble.Show(_config.SystemMonitor
+                    ? "Fico de olho na CPU, na memória e na bateria. 📊"
+                    : "Tá bom, não grito mais sobre o PC.", 4);
+                break;
             case MenuId.Autostart:
                 bool on = !Autostart.IsEnabled();
                 Autostart.SetEnabled(on);
@@ -404,7 +490,7 @@ public partial class Main : Node2D
                 _brain.AutoWebs = _config.AutoWebs;
                 _brain.MaxWebs = _config.MaxWebs;
                 _apps.Enabled = _config.AppComments;
-                _bubble.Show("Configurações recarregadas!", 3);
+                _bubble.Show(_config.LoadError != null ? ConfigErrorText : "Configurações recarregadas!", _config.LoadError != null ? 7 : 3);
                 break;
             case MenuId.DebugRestart: Restart(debug: !DebugMode); break;
             case MenuId.OpenLog: OS.ShellOpen(ProjectSettings.GlobalizePath("user://logs/godot.log")); break;
@@ -423,8 +509,10 @@ public partial class Main : Node2D
     {
         if (debug) OS.SetEnvironment("WEBI_DEBUG", "1");
         else OS.UnsetEnvironment("WEBI_DEBUG");
+        OS.SetEnvironment("WEBI_RESTARTING", "1");
         if (OS.CreateProcess(OS.GetExecutablePath(), OS.GetCmdlineArgs()) < 0)
         {
+            OS.UnsetEnvironment("WEBI_RESTARTING");
             _bubble.Show("Não consegui me reiniciar... 😵", 4);
             return;
         }
@@ -494,8 +582,9 @@ public partial class Main : Node2D
         double idle = Native.IdleMilliseconds() / 1000.0;
         _reminders.Tick(delta, idle < 120);
         _monitor.Tick(delta);
-        _apps.Tick(delta, idle, canTalk: !_hidden && !_brain.Asleep && !_brain.Busy && !_shout.Visible);
-        _brain.Quiet = _apps.Quiet;
+        _apps.Tick(delta, idle, canTalk: !_hidden && !_brain.Asleep && !_brain.Busy && !_shout.Visible && !_dnd.Active);
+        _dnd.Tick(delta);
+        _brain.Quiet = _apps.Quiet || _dnd.Active;
         if (!_hidden)
             _brain.Tick(dt, cursor, idle, _config.SleepAfterIdleMinutes * 60);
 
@@ -503,13 +592,26 @@ public partial class Main : Node2D
         if (_dragging) _spider.DragTo(cursor);
         _spider.Speaking = _bubble.IsTyping;
 
+        // Little moves while asleep or out of sight; any mouse or keyboard input brings the full rate back
+        // right away (shaking the giant web down needs it).
+        int fps = (_hidden || _brain.Asleep) && !_dragging && idle > 1 ? RestingFps : ActiveFps;
+        if (Engine.MaxFps != fps) Engine.MaxFps = fps;
+
+        if (_tray != null && (_tooltipTimer -= dt) <= 0)
+        {
+            _tooltipTimer = 1;
+            var tip = _reminders.PomodoroRunning ? $"Webi · 🍅 {_reminders.PomodoroStatus()}" : "Webi";
+            if (_tray.Tooltip != tip) _tray.Tooltip = tip;
+        }
+
         if (DebugMode && (_debugTimer -= dt) <= 0)
         {
             _debugTimer = 1;
             GD.Print($"[debug] {_spider.State} body={_spider.BodyCenter.Round()} surf={_spider.Surface} walking={_spider.IsWalking} " +
                      $"surfaces={_map.All.Count} windows={_map.Windows.Count} face={_spider.Expression} asleep={_brain.Asleep} " +
                      $"app={_apps.Current?.Id ?? "-"} proc={_apps.LastProcess} dwell={_apps.Dwell:0}s quiet={_apps.Quiet} " +
-                     $"blocked=[{string.Join(",", _scanner.BlockedMonitors)}] parked={_spider.Parked} hidden={_hidden}");
+                     $"blocked=[{string.Join(",", _scanner.BlockedMonitors)}] parked={_spider.Parked} hidden={_hidden} " +
+                     $"dnd={_dnd.Active} ({_dnd.Describe}) fps={Engine.MaxFps}");
         }
 
         var head = _spider.BodyCenter - new Vector2(0, 34 * _spider.PixelScale);
@@ -548,6 +650,13 @@ public partial class Main : Node2D
             else if (_bubble.Visible && _bubble.GetGlobalRect().HasPoint(cursor))
             {
                 _bubble.Visible = false;
+            }
+            else if (_shout.OverSnooze(cursor) && _shout.Snoozable is { } kind)
+            {
+                _reminders.Snooze(kind);
+                _shout.Visible = false;
+                _brain.React(Face.Happy, 1.5f);
+                _bubble.Show($"Tá bom, te lembro de novo daqui a {Reminders.SnoozeMinutes} min. ⏰", 4);
             }
             else if (_shout.Visible && _shout.GetGlobalRect().HasPoint(cursor))
             {
@@ -631,7 +740,7 @@ public partial class Main : Node2D
             _trail.Clear();
         }
 
-        if (_config.ScreenWebMinutes > 0 && _mouseStill > _config.ScreenWebMinutes * 60 && _webs.Giant == null && !_apps.Quiet)
+        if (_config.ScreenWebMinutes > 0 && _mouseStill > _config.ScreenWebMinutes * 60 && _webs.Giant == null && !_brain.Quiet)
         {
             var m = _overlay.MonitorAt(cursor);
             if (_brain.StartGiantWeb(new Rect2(m.Bounds.Position, m.Bounds.Size))) _mouseStill = 0;
