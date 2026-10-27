@@ -55,6 +55,8 @@ public partial class StickyNotes : Node2D
             AddChild(label);
             _cards.Add(new Card { Label = label, Phase = _rng.RandfRange(0, Mathf.Tau), Age = 0 });
         }
+        // _Process stops redrawing once there are no cards, so the last frame would stay on screen.
+        QueueRedraw();
     }
 
     /// <summary>Index of the note under the point, or -1.</summary>

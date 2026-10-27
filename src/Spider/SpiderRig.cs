@@ -224,8 +224,8 @@ public partial class SpiderRig : Node2D
     /// <summary>One horizontal run of hat pixels, outlined left and right.</summary>
     void Row(int y, int x0, int x1, Color fill, bool outline = true)
     {
-        if (outline) DrawRect(new Rect2(x0 - 1, y, x1 - x0 + 3, 1), HatInk);
-        DrawRect(new Rect2(x0, y, x1 - x0 + 1, 1), fill);
+        if (outline) Px(new Rect2(x0 - 1, y, x1 - x0 + 3, 1), HatInk);
+        Px(new Rect2(x0, y, x1 - x0 + 1, 1), fill);
     }
 
     /// <summary>A cone from a base (half width <paramref name="half"/>) up <paramref name="height"/> rows, leaning by <paramref name="lean"/> at the tip.</summary>
@@ -239,21 +239,52 @@ public partial class SpiderRig : Node2D
             Row(baseY - r, cx - w, cx + w, color(r));
         }
         int tip = Mathf.RoundToInt(lean);
-        DrawRect(new Rect2(tip - 1, baseY - height - 1, 3, 1), HatInk);
+        Px(new Rect2(tip - 1, baseY - height - 1, 3, 1), HatInk);
     }
 
     void Pompom(Vector2 c, Color fill)
     {
-        DrawRect(new Rect2(c.X - 2, c.Y - 1, 5, 3), HatInk);
-        DrawRect(new Rect2(c.X - 1, c.Y - 2, 3, 5), HatInk);
-        DrawRect(new Rect2(c.X - 1, c.Y - 1, 3, 3), fill);
+        Px(new Rect2(c.X - 2, c.Y - 1, 5, 3), HatInk);
+        Px(new Rect2(c.X - 1, c.Y - 2, 3, 5), HatInk);
+        Px(new Rect2(c.X - 1, c.Y - 1, 3, 3), fill);
+    }
+
+    // The hat is baked into a texture: a stack of 1 px rows drawn straight on the rotated rig leaves seams
+    // between them, a texture rotates as one piece like the body.
+    // Room around the widest/tallest hat (brim ±19, cone tip 21 rows up), with a few pixels to spare.
+    const int HatHalfW = 24, HatAbove = 28;
+    readonly Image _hatImg = Image.CreateEmpty(HatHalfW * 2, HatAbove + 2, false, Image.Format.Rgba8);
+    ImageTexture? _hatTex;
+    Assistant.Hat _hatBaked = Assistant.Hat.None;
+
+    /// <summary>Fills hat pixels; coordinates are relative to the hat's base line, x centred.</summary>
+    void Px(Rect2 r, Color c)
+    {
+        var px = new Rect2I(Mathf.FloorToInt(r.Position.X) + HatHalfW, Mathf.FloorToInt(r.Position.Y) + HatAbove,
+            Mathf.RoundToInt(r.Size.X), Mathf.RoundToInt(r.Size.Y));
+        var all = new Rect2I(Vector2I.Zero, _hatImg.GetSize());
+        if (!all.Encloses(px)) GD.PushWarning($"Hat {Hat} draws outside its {all.Size} image; raise HatHalfW/HatAbove.");
+        _hatImg.FillRect(px.Intersection(all), c);
     }
 
     void DrawHat(Rect2 box)
     {
         if (Hat == Assistant.Hat.None) return;
+        if (_hatBaked != Hat)
+        {
+            _hatImg.Fill(Colors.Transparent);
+            BakeHat(0);
+            if (_hatTex == null) _hatTex = ImageTexture.CreateFromImage(_hatImg);
+            else _hatTex.Update(_hatImg);
+            _hatBaked = Hat;
+        }
         // Sits on the head: just under the top of the body sprite, centred.
-        int top = (int)box.Position.Y + 5;
+        int y = (int)box.Position.Y + 5;
+        DrawTexture(_hatTex!, new Vector2(-HatHalfW, y - HatAbove));
+    }
+
+    void BakeHat(int top)
+    {
         switch (Hat)
         {
             case Assistant.Hat.Witch:
@@ -263,7 +294,7 @@ public partial class SpiderRig : Node2D
                 Cone(top - 2, 9, 18, 6, r => r is 2 or 3 ? band : hat);
                 Row(top - 1, -15, 15, hat);
                 Row(top, -14, 14, new Color("2c1f40"));
-                DrawRect(new Rect2(-15, top + 1, 31, 1), HatInk);
+                Px(new Rect2(-15, top + 1, 31, 1), HatInk);
                 break;
             }
             case Assistant.Hat.Santa:
@@ -273,7 +304,7 @@ public partial class SpiderRig : Node2D
                 Pompom(new Vector2(11, top - 16), Colors.White);
                 Row(top - 1, -12, 12, Colors.White);
                 Row(top, -12, 12, new Color("e6e2dc"));
-                DrawRect(new Rect2(-12, top + 1, 25, 1), HatInk);
+                Px(new Rect2(-12, top + 1, 25, 1), HatInk);
                 break;
             }
             case Assistant.Hat.Party:
@@ -282,7 +313,7 @@ public partial class SpiderRig : Node2D
                 var b = new Color("ffd23f");
                 Cone(top, 7, 15, 0, r => (r / 3) % 2 == 0 ? a : b);
                 Pompom(new Vector2(0, top - 16), new Color("ff5d8f"));
-                DrawRect(new Rect2(-8, top + 1, 17, 1), HatInk);
+                Px(new Rect2(-8, top + 1, 17, 1), HatInk);
                 break;
             }
             case Assistant.Hat.Straw:
@@ -297,9 +328,9 @@ public partial class SpiderRig : Node2D
                 Row(top - 3, -8, 8, new Color("d43c2f")); // band
                 Row(top - 1, -18, 18, straw);
                 Row(top, -17, 17, weave);
-                DrawRect(new Rect2(-18, top + 1, 37, 1), HatInk);
+                Px(new Rect2(-18, top + 1, 37, 1), HatInk);
                 // A patch.
-                DrawRect(new Rect2(3, top - 6, 3, 2), new Color("6aa84f"));
+                Px(new Rect2(3, top - 6, 3, 2), new Color("6aa84f"));
                 break;
             }
             case Assistant.Hat.Bunny:
@@ -311,7 +342,7 @@ public partial class SpiderRig : Node2D
                     {
                         int cx = side * (6 + r / 5);
                         Row(top - r, cx - 2, cx + 2, white);
-                        if (r is > 2 and < 13) DrawRect(new Rect2(cx - 1, top - r, 3, 1), pink);
+                        if (r is > 2 and < 13) Px(new Rect2(cx - 1, top - r, 3, 1), pink);
                     }
                 break;
             }
@@ -323,11 +354,11 @@ public partial class SpiderRig : Node2D
                     for (int x = 0; x < heart[y].Length; x++)
                         if (heart[y][x] == '#')
                         {
-                            DrawRect(new Rect2(x - 3 - 1, top - 9 + y, 3, 1), HatInk);
+                            Px(new Rect2(x - 3 - 1, top - 9 + y, 3, 1), HatInk);
                         }
                 for (int y = 0; y < heart.Length; y++)
                     for (int x = 0; x < heart[y].Length; x++)
-                        if (heart[y][x] == '#') DrawRect(new Rect2(x - 3, top - 9 + y, 1, 1), y == 1 && x == 1 ? Colors.White : red);
+                        if (heart[y][x] == '#') Px(new Rect2(x - 3, top - 9 + y, 1, 1), y == 1 && x == 1 ? Colors.White : red);
                 break;
             }
         }

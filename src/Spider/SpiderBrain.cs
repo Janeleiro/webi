@@ -81,6 +81,9 @@ public sealed class SpiderBrain
     int _huntSteps;
     /// <summary>A fly stuck in one of the webs, and the time left before eating it once there.</summary>
     Fly? _webMeal;
+    /// <summary>Stuck flies already gone after (announced once) and how many trips found no way there.</summary>
+    readonly Dictionary<Fly, int> _mealFails = new();
+    const int MaxMealFails = 3;
     float _eatTimer;
 
     float _tripTimer, _peekCooldown = 60, _carriedCooldown;
@@ -741,14 +744,36 @@ public sealed class SpiderBrain
             return true;
         }
 
-        if (++_taskAttempts > 5) { EndTask(); return false; }
+        if (++_taskAttempts > 5) { NoWayThere(); return false; }
         if (!_spider.WalkTo(spot.Stand, spot.StandS, speed: 60))
         {
-            // Another window or monitor island: jump over if it's within reach.
+            // Another window or monitor island: jump over if it's within reach, otherwise walk closer first.
             if (_spider.Contact.DistanceTo(spot.StandPoint) < 700) _spider.JumpTo(spot.StandPoint);
-            else { EndTask(); return false; }
+            else if (!WalkToward(spot.StandPoint)) { NoWayThere(); return false; }
         }
         return true;
+    }
+
+    /// <summary>Walks along the current surface toward a point, stopping at its end (never round a corner).</summary>
+    bool WalkToward(Vector2 target)
+    {
+        var surf = _spider.Surface;
+        if (surf == null) return false;
+        int px = _spider.PixelScale;
+        float along = (target - _spider.Contact).Dot(surf.Tangent);
+        int dir = along >= 0 ? 1 : -1;
+        float room = dir > 0 ? surf.Length - _spider.S : _spider.S;
+        float dist = Mathf.Min(Mathf.Min(Mathf.Abs(along), room), 200 * px);
+        if (dist < 40 * px) return false;
+        _spider.Walk(dist, dir, 60);
+        return true;
+    }
+
+    /// <summary>The web task found no way to its corner; a trip for a stuck fly counts toward giving it up.</summary>
+    void NoWayThere()
+    {
+        if (_task == WebTask.GoHang && _webMeal != null && _mealFails.ContainsKey(_webMeal)) _mealFails[_webMeal]++;
+        EndTask();
     }
 
     void HangOn(Web web)
@@ -805,12 +830,16 @@ public sealed class SpiderBrain
         // A fly stuck in one of the corner webs: go hang there and eat it.
         if (Bugs != null && Webs != null)
         {
-            var stuck = Bugs.Flies.FirstOrDefault(f => f.State == FlyState.Stuck && f.Web is { Alive: true, Visible: true, Giant: false });
+            foreach (var gone in _mealFails.Keys.Where(f => f.Gone || f.State != FlyState.Stuck).ToList())
+                _mealFails.Remove(gone);
+            var stuck = Bugs.Flies.FirstOrDefault(f => f.State == FlyState.Stuck && f.Web is { Alive: true, Visible: true, Giant: false }
+                                                       && _mealFails.GetValueOrDefault(f) < MaxMealFails);
             if (stuck != null && Webs.Spots(_map, freeOnly: false).Any(sp => sp.Key == stuck.Web!.Key))
             {
+                // A trip that didn't make it is tried again quietly; after a few with no way there the fly is left alone.
+                if (_mealFails.TryAdd(stuck, 0)) Say?.Invoke(Lines.Pick(Lines.FlyInWeb), 3);
                 _webMeal = stuck;
                 BeginTask(WebTask.GoHang, stuck.Web!.Key);
-                Say?.Invoke(Lines.Pick(Lines.FlyInWeb), 3);
                 return true;
             }
         }
