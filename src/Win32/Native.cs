@@ -19,6 +19,7 @@ public static class Native
     public const long WS_EX_LAYERED = 0x00080000;
     public const long WS_EX_NOACTIVATE = 0x08000000;
     public const long WS_CHILD = 0x40000000;
+    public const long WS_CAPTION = 0x00C00000;
 
     public const uint LWA_ALPHA = 0x2;
 

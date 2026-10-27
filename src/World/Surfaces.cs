@@ -36,7 +36,8 @@ public sealed class Surface
 }
 
 /// <summary>A visible top-level window as seen by the scanner (world coordinates).</summary>
-public readonly record struct DesktopWindow(long Handle, Rect2 Rect, string Title);
+/// <param name="CoversMonitor">Fills a whole monitor (fullscreen): it does not hide that monitor's borders.</param>
+public readonly record struct DesktopWindow(long Handle, Rect2 Rect, string Title, bool CoversMonitor = false);
 
 /// <summary>
 /// Turns the window stack into walkable edges: every window contributes its 4 outer edges, and the outline of
@@ -138,7 +139,11 @@ public sealed class SurfaceMap
                         Clip(visible, a - n * 2, t, horizontal, workAreas[k], keepInside: false);
             }
             for (int w = 0; w < occluderCount; w++)
+            {
+                // A fullscreen window (e.g. remote desktop) would otherwise leave its monitor without a floor.
+                if (monitor >= 0 && windows[w].CoversMonitor) continue;
                 Clip(visible, a, t, horizontal, windows[w].Rect, keepInside: false);
+            }
 
             foreach (var (s0, s1) in visible)
             {

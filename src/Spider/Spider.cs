@@ -56,6 +56,8 @@ public partial class Spider : Node2D
     public Gesture CurrentGesture { get; private set; }
     /// <summary>The web it is hanging from, if any.</summary>
     public Web? HangingWeb => State == Mode.Hanging ? _anchorWeb : null;
+    /// <summary>No floor anywhere to drop onto (every monitor taken by fullscreen apps): out of sight, waiting.</summary>
+    public bool Parked { get; private set; }
 
     public event Action? Landed;
     public event Action? EdgeReached;
@@ -425,7 +427,8 @@ public partial class Spider : Node2D
     /// <summary>Call after the surface map is rebuilt: follows moving windows, falls if the ground vanished.</summary>
     public void Resync()
     {
-        if (State == Mode.Grounded)
+        if (Parked) Respawn();
+        else if (State == Mode.Grounded)
         {
             var surf = _map.Find(_keyOwner, _keySide, _keyOffset, out float s);
             if (surf == null) { Fall(); return; }
@@ -641,6 +644,7 @@ public partial class Spider : Node2D
 
     void UpdateAirborne(float dt)
     {
+        if (Parked) return;
         _velocity.Y = Mathf.Min(_velocity.Y + Gravity * dt, 2600);
         var p1 = Contact + _velocity * dt;
         var hit = _map.Sweep(Contact, p1, out float t, out float s);
@@ -672,13 +676,43 @@ public partial class Spider : Node2D
         var ahead = _map.Sweep(Contact, Contact + _velocity * 0.14f, out _, out _);
         _landingNormal = ahead?.Normal;
 
-        // Fell out of the world (e.g. through a gap between monitors): drop back in on the primary monitor.
+        // Fell out of the world (e.g. through a gap between monitors): drop back in where there is ground.
         if (Contact.Y > _bounds.End.Y + 200 || Contact.X < _bounds.Position.X - 200 || Contact.X > _bounds.End.X + 200
             || Contact.Y < _bounds.Position.Y - 1500)
-        {
-            Contact = new Vector2(Mathf.Clamp(Contact.X, _spawn.Position.X + 40, _spawn.End.X - 40), _spawn.Position.Y + 30);
-            _velocity = Vector2.Zero;
-        }
+            Respawn();
+    }
+
+    /// <summary>Where along a work area's width to try dropping in, best first.</summary>
+    static readonly float[] DropSpots = { 0.7f, 0.5f, 0.3f, 0.85f, 0.15f };
+
+    /// <summary>Leaves wherever it is and drops in again (e.g. its monitor was taken by a fullscreen game).</summary>
+    public void Relocate()
+    {
+        if (State is Mode.Dragged or Mode.Weaving) return;
+        Respawn();
+    }
+
+    /// <summary>
+    /// Drops in from the top of a work area (the spawn one first) above a floor that really exists, so it can
+    /// never fall forever. With no floor anywhere it parks out of sight until one appears.
+    /// </summary>
+    void Respawn()
+    {
+        if (State != Mode.Airborne) LaunchAirborne(Vector2.Zero);
+        _velocity = Vector2.Zero;
+        _landingNormal = null;
+        _walkRemaining = 0;
+        _resumeWalk = 0;
+        foreach (var area in _workAreas.Prepend(_spawn))
+            foreach (float f in DropSpots)
+            {
+                var p = new Vector2(area.Position.X + area.Size.X * f, area.Position.Y + 30);
+                if (!_workAreas.Any(w => w.HasPoint(p)) || _map.FloorBelow(p, out _, out _) == null) continue;
+                Contact = p;
+                Parked = false;
+                return;
+            }
+        Parked = true;
     }
 
     void UpdateWeaving(float dt)

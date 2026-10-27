@@ -34,13 +34,15 @@ public partial class Main : Node2D
     StatusIndicator? _tray;
 
     float _scanTimer, _topmostTimer, _fullscreenTimer, _layoutTimer, _debugTimer;
-    bool _hiddenForFullscreen;
+    /// <summary>Out of sight: behind a fullscreen app, or parked with no floor anywhere.</summary>
+    bool _hidden;
+    bool _fullscreenHide;
     bool _pressing, _dragging, _leftWasDown, _rightWasDown;
     Vector2 _pressPos;
     float _lastDelta = 1 / 60f;
     bool _greeted;
 
-    enum MenuId { Pomodoro, PomodoroStatus, Upcoming, PcStatus, AppComments, MakeWeb, ClearWebs, AutoWebs, GiantWeb, Monitor, Autostart, OpenConfig, ReloadConfig, Sleep, Quit }
+    enum MenuId { Pomodoro, PomodoroStatus, Upcoming, PcStatus, AppComments, MakeWeb, ClearWebs, AutoWebs, GiantWeb, Monitor, Autostart, OpenConfig, ReloadConfig, DebugRestart, OpenLog, Sleep, Quit }
 
     static readonly int[] ReminderIntervals = { 15, 30, 45, 60, 90 };
     /// <summary>Ids of the submenu entries, clear of every <see cref="MenuId"/>.</summary>
@@ -52,14 +54,13 @@ public partial class Main : Node2D
         _overlay.Setup(this);
         _scanner = new DesktopScanner(_overlay);
 
-        _map.Rebuild(_scanner.Scan(), _overlay.WorkAreas);
         // Webs first so they are drawn under the spider.
         _webs = new WebLayer { PixelScale = _config.Scale };
         AddChild(_webs);
         _spider = new SpiderNode();
         AddChild(_spider);
         _spider.Setup(_map, _overlay.Bounds, PrimaryWork(), _config.Scale);
-        _spider.SetBounds(_overlay.Bounds, PrimaryWork(), _overlay.WorkAreas);
+        RebuildWorld();
         _spider.SetFur(FurColors.Find(_config.FurColor));
 
         _brain = new SpiderBrain(_spider, _map)
@@ -86,7 +87,7 @@ public partial class Main : Node2D
         };
         _apps.Comment += reaction =>
         {
-            if (OS.HasEnvironment("WEBI_DEBUG")) GD.Print($"[comment] {_apps.Current?.Id}: {reaction.Text}");
+            if (DebugMode) GD.Print($"[comment] {_apps.Current?.Id}: {reaction.Text}");
             _bubble.Show(_brain.Remark(reaction), 6);
         };
 
@@ -94,7 +95,7 @@ public partial class Main : Node2D
         BuildTray();
         Autostart.Refresh();
 
-        if (OS.HasEnvironment("WEBI_DEBUG"))
+        if (DebugMode)
         {
             foreach (var m in _overlay.Monitors) GD.Print($"[debug] monitor {m.Bounds} work={m.WorkArea} primary={m.Primary}");
             foreach (var surf in _map.All.Where(x => x.Owner < 0))
@@ -115,6 +116,35 @@ public partial class Main : Node2D
     }
 
     Rect2 PrimaryWork() => new(_overlay.Primary.WorkArea.Position, _overlay.Primary.WorkArea.Size);
+
+    /// <summary>
+    /// Rescans the windows and rebuilds the walkable world from the monitors not taken by a fullscreen app;
+    /// if the spider is on a taken one it moves to a free monitor.
+    /// </summary>
+    void RebuildWorld()
+    {
+        var windows = _scanner.Scan(_config.HideOnFullscreen);
+        var work = new System.Collections.Generic.List<Rect2>();
+        Rect2? spawn = null;
+        bool onBlocked = false;
+        for (int i = 0; i < _overlay.Monitors.Count; i++)
+        {
+            var m = _overlay.Monitors[i];
+            if (_scanner.BlockedMonitors.Contains(i))
+            {
+                onBlocked |= new Rect2(m.Bounds.Position, m.Bounds.Size).HasPoint(_spider.BodyCenter);
+                continue;
+            }
+            var area = new Rect2(m.WorkArea.Position, m.WorkArea.Size);
+            work.Add(area);
+            if (m.Primary || spawn == null) spawn = area;
+        }
+        _map.Rebuild(windows, work);
+        _spider.SetBounds(_overlay.Bounds, spawn ?? PrimaryWork(), work);
+        _webs.Sync(_map);
+        if (onBlocked) _spider.Relocate();
+        _spider.Resync();
+    }
 
     void OnFirstLanding()
     {
@@ -176,6 +206,8 @@ public partial class Main : Node2D
         menu.AddSeparator();
         menu.AddItem("⚙ Abrir config.json", (int)MenuId.OpenConfig);
         menu.AddItem("🔄 Recarregar config", (int)MenuId.ReloadConfig);
+        menu.AddItem(DebugMode ? "🐞 Reiniciar em modo normal" : "🐞 Reiniciar em modo debug", (int)MenuId.DebugRestart);
+        if (DebugMode) menu.AddItem("📄 Abrir log de debug", (int)MenuId.OpenLog);
         menu.AddItem("😴 Dormir", (int)MenuId.Sleep);
         menu.AddSeparator();
         menu.AddItem("👋 Sair", (int)MenuId.Quit);
@@ -374,12 +406,29 @@ public partial class Main : Node2D
                 _apps.Enabled = _config.AppComments;
                 _bubble.Show("Configurações recarregadas!", 3);
                 break;
+            case MenuId.DebugRestart: Restart(debug: !DebugMode); break;
+            case MenuId.OpenLog: OS.ShellOpen(ProjectSettings.GlobalizePath("user://logs/godot.log")); break;
             case MenuId.Sleep:
                 if (_brain.Asleep) _brain.WakeUp();
                 else _bubble.Show(Lines.Pick(Lines.SleepHint), 4);
                 break;
             case MenuId.Quit: GetTree().Quit(); break;
         }
+    }
+
+    static bool DebugMode => OS.HasEnvironment("WEBI_DEBUG");
+
+    /// <summary>Starts a fresh instance (same exe and arguments) with or without WEBI_DEBUG, then quits.</summary>
+    void Restart(bool debug)
+    {
+        if (debug) OS.SetEnvironment("WEBI_DEBUG", "1");
+        else OS.UnsetEnvironment("WEBI_DEBUG");
+        if (OS.CreateProcess(OS.GetExecutablePath(), OS.GetCmdlineArgs()) < 0)
+        {
+            _bubble.Show("Não consegui me reiniciar... 😵", 4);
+            return;
+        }
+        GetTree().Quit();
     }
 
     static void CopyConfig(Config from, Config to)
@@ -410,22 +459,14 @@ public partial class Main : Node2D
         if (_scanTimer <= 0)
         {
             _scanTimer = ScanInterval;
-            _map.Rebuild(_scanner.Scan(), _overlay.WorkAreas);
-            _webs.Sync(_map);
-            _spider.Resync();
+            RebuildWorld();
         }
 
         _layoutTimer -= dt;
         if (_layoutTimer <= 0)
         {
             _layoutTimer = 3;
-            if (_overlay.CheckLayout())
-            {
-                _spider.SetBounds(_overlay.Bounds, PrimaryWork(), _overlay.WorkAreas);
-                _map.Rebuild(_scanner.Scan(), _overlay.WorkAreas);
-                _webs.Sync(_map);
-                _spider.Resync();
-            }
+            if (_overlay.CheckLayout()) RebuildWorld();
         }
 
         // Re-raise the overlay now and then, but never over an open menu.
@@ -440,33 +481,35 @@ public partial class Main : Node2D
         if (_fullscreenTimer <= 0)
         {
             _fullscreenTimer = 1;
-            bool hide = _config.HideOnFullscreen && _scanner.FullscreenMonitor() is Rect2 full && full.HasPoint(_spider.BodyCenter);
-            if (hide != _hiddenForFullscreen)
-            {
-                _hiddenForFullscreen = hide;
-                _spider.Visible = !hide;
-                if (hide) _bubble.Visible = false;
-            }
+            _fullscreenHide = _config.HideOnFullscreen && _scanner.FullscreenMonitor() is Rect2 full && full.HasPoint(_spider.BodyCenter);
+        }
+        bool hide = _fullscreenHide || _spider.Parked;
+        if (hide != _hidden)
+        {
+            _hidden = hide;
+            _spider.Visible = !hide;
+            if (hide) _bubble.Visible = false;
         }
 
         double idle = Native.IdleMilliseconds() / 1000.0;
         _reminders.Tick(delta, idle < 120);
         _monitor.Tick(delta);
-        _apps.Tick(delta, idle, canTalk: !_hiddenForFullscreen && !_brain.Asleep && !_brain.Busy && !_shout.Visible);
+        _apps.Tick(delta, idle, canTalk: !_hidden && !_brain.Asleep && !_brain.Busy && !_shout.Visible);
         _brain.Quiet = _apps.Quiet;
-        if (!_hiddenForFullscreen)
+        if (!_hidden)
             _brain.Tick(dt, cursor, idle, _config.SleepAfterIdleMinutes * 60);
 
         PollMouse(cursor);
         if (_dragging) _spider.DragTo(cursor);
         _spider.Speaking = _bubble.IsTyping;
 
-        if (OS.HasEnvironment("WEBI_DEBUG") && (_debugTimer -= dt) <= 0)
+        if (DebugMode && (_debugTimer -= dt) <= 0)
         {
             _debugTimer = 1;
             GD.Print($"[debug] {_spider.State} body={_spider.BodyCenter.Round()} surf={_spider.Surface} walking={_spider.IsWalking} " +
                      $"surfaces={_map.All.Count} windows={_map.Windows.Count} face={_spider.Expression} asleep={_brain.Asleep} " +
-                     $"app={_apps.Current?.Id ?? "-"} proc={_apps.LastProcess} dwell={_apps.Dwell:0}s quiet={_apps.Quiet}");
+                     $"app={_apps.Current?.Id ?? "-"} proc={_apps.LastProcess} dwell={_apps.Dwell:0}s quiet={_apps.Quiet} " +
+                     $"blocked=[{string.Join(",", _scanner.BlockedMonitors)}] parked={_spider.Parked} hidden={_hidden}");
         }
 
         var head = _spider.BodyCenter - new Vector2(0, 34 * _spider.PixelScale);
@@ -480,7 +523,7 @@ public partial class Main : Node2D
 
         // Clicks pass through the overlay except over the spider and open UI.
         bool interactive = _pressing || _dragging
-            || (!_hiddenForFullscreen && _spider.HitRect().HasPoint(cursor))
+            || (!_hidden && _spider.HitRect().HasPoint(cursor))
             || (_bubble.Visible && _bubble.GetGlobalRect().HasPoint(cursor))
             || (_shout.Visible && _shout.GetGlobalRect().HasPoint(cursor));
         _overlay.UpdateClickThrough(cursor, interactive);
@@ -493,7 +536,7 @@ public partial class Main : Node2D
     void PollMouse(Vector2 cursor)
     {
         bool left = Native.IsMouseDown(primary: true), right = Native.IsMouseDown(primary: false);
-        bool overSpider = !_hiddenForFullscreen && _spider.HitRect().HasPoint(cursor);
+        bool overSpider = !_hidden && _spider.HitRect().HasPoint(cursor);
 
         if (left && !_leftWasDown)
         {
