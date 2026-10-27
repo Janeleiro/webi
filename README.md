@@ -153,7 +153,8 @@ ela começa do zero.
 ## Vários monitores
 
 A Webi usa todos os monitores conectados. Cada monitor tem sua própria janela transparente, e todas
-desenham o mesmo mundo. Ao chegar à divisa entre monitores, a aranha **pula** para o outro lado e continua andando e o balão aparece no monitor
+desenham o mesmo mundo. Ela nunca desce de seda colada na divisa entre dois monitores lado a lado (o corpo ficaria cortado entre
+as telas): perto da divisa ela primeiro se afasta uns 120 px (na escala 2) e só então desce. Ao chegar à divisa entre monitores, a aranha **pula** para o outro lado e continua andando e o balão aparece no monitor
 onde ela está. A borda da área de trabalho é o contorno da **união** dos monitores: onde dois monitores se
 encostam, o chão continua; onde as alturas diferem, vira degrau ou parede. Se você conectar, desconectar ou
 reorganizar monitores com o app aberto, as janelas se refazem em até 3 s. Ao entrar em tela cheia, ela só

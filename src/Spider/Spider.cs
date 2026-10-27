@@ -368,6 +368,8 @@ public partial class Spider : Node2D
             if (!atEnd && !atStart) return false;
             anchor = Contact + Surface.Tangent * (atEnd ? 2 : -2);
         }
+        // Never hang on the bezel between two monitors: the body would be split across both screens.
+        if (SeamDistance(anchor.X) < SeamMargin) return false;
         _anchor = anchor;
         _anchorWeb = null;
         _anchorExtra = anchor - Contact;
@@ -380,6 +382,37 @@ public partial class Spider : Node2D
         State = Mode.Hanging;
         Surface = null;
         return true;
+    }
+
+    /// <summary>How far (world px) a silk drop must keep from the border between side-by-side monitors.</summary>
+    public float SeamMargin => (BodyExtent + 30) * PixelScale;
+
+    /// <summary>
+    /// Horizontal distance from <paramref name="x"/> to the nearest border between two monitors standing side by
+    /// side (one's right edge touching the other's left edge, with overlapping heights). Infinity with one monitor.
+    /// </summary>
+    public float SeamDistance(float x)
+    {
+        float best = float.PositiveInfinity;
+        foreach (var a in _workAreas)
+            foreach (var b in _workAreas)
+            {
+                if (a == b || Mathf.Abs(a.End.X - b.Position.X) > 4) continue;
+                if (a.Position.Y >= b.End.Y || b.Position.Y >= a.End.Y) continue;
+                best = Mathf.Min(best, Mathf.Abs(x - a.End.X));
+            }
+        return best;
+    }
+
+    /// <summary>
+    /// Direction along the current surface (1 forward, -1 back) that leads away from a nearby monitor border,
+    /// or 0 when not near one or when the surface doesn't run sideways (a wall).
+    /// </summary>
+    public int AwayFromSeam()
+    {
+        if (Surface == null || SeamDistance(Contact.X) >= SeamMargin || Mathf.Abs(Surface.Tangent.X) < 0.5f) return 0;
+        float d = SeamDistance(Contact.X + Surface.Tangent.X * 10);
+        return d > SeamDistance(Contact.X) ? 1 : -1;
     }
 
     public void ClimbSilk()

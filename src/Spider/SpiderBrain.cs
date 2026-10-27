@@ -220,7 +220,18 @@ public sealed class SpiderBrain
         _spider.Fidget = false;
 
         // Upside down or on a wall for a while? Most of the time go back down on silk.
-        if (!surf.IsFloorLike && _rng.Randf() < 0.45f && _spider.DropOnSilk()) return;
+        if (!surf.IsFloorLike && _rng.Randf() < 0.45f)
+        {
+            if (_spider.DropOnSilk()) return;
+            // Too close to the border between two monitors: move away from it first, then drop next time.
+            int away = _spider.AwayFromSeam();
+            if (away != 0)
+            {
+                _spider.Walk(_spider.SeamMargin * 1.5f, away);
+                _decisionTimer = 0.5f;
+                return;
+            }
+        }
 
         if (TryStartHunt(cursor, cursorDist)) return;
         if (TryPeek(surf)) return;
