@@ -20,6 +20,8 @@ public partial class SpiderRig : Node2D
     public bool Speaking;
     public float Time;
     public BodyPose Pose;
+    /// <summary>Seasonal hat drawn on top of the head.</summary>
+    public Assistant.Hat Hat;
     /// <summary>Eye direction in local space, length 0..1.</summary>
     public Vector2 Look;
     /// <summary>Foot positions in local art pixels (0-3 left, 4-7 right; 0/4 = front pair).</summary>
@@ -169,6 +171,7 @@ public partial class SpiderRig : Node2D
 
         DrawEyes(box);
         DrawPalps(box);
+        DrawHat(box);
 
         for (int idx = 1; idx >= 0; idx--) { DrawLeg(idx, -1, false); DrawLeg(idx, 1, false); }
     }
@@ -211,6 +214,122 @@ public partial class SpiderRig : Node2D
             if (!_tex.TryGetValue(name, out var tex)) continue;
             var c = At(box, anchor) + new Vector2(0, sgn * w > 0 ? -2 : 0);
             DrawTexture(tex, (c - tex.GetSize() / 2).Floor());
+        }
+    }
+
+    // ------------------------------------------------------------------ hats
+
+    static readonly Color HatInk = new("2a1a14");
+
+    /// <summary>One horizontal run of hat pixels, outlined left and right.</summary>
+    void Row(int y, int x0, int x1, Color fill, bool outline = true)
+    {
+        if (outline) DrawRect(new Rect2(x0 - 1, y, x1 - x0 + 3, 1), HatInk);
+        DrawRect(new Rect2(x0, y, x1 - x0 + 1, 1), fill);
+    }
+
+    /// <summary>A cone from a base (half width <paramref name="half"/>) up <paramref name="height"/> rows, leaning by <paramref name="lean"/> at the tip.</summary>
+    void Cone(int baseY, int half, int height, float lean, System.Func<int, Color> color)
+    {
+        for (int r = 0; r < height; r++)
+        {
+            float u = r / (float)height;
+            int w = Mathf.RoundToInt(Mathf.Lerp(half, 0.5f, u));
+            int cx = Mathf.RoundToInt(lean * u * u);
+            Row(baseY - r, cx - w, cx + w, color(r));
+        }
+        int tip = Mathf.RoundToInt(lean);
+        DrawRect(new Rect2(tip - 1, baseY - height - 1, 3, 1), HatInk);
+    }
+
+    void Pompom(Vector2 c, Color fill)
+    {
+        DrawRect(new Rect2(c.X - 2, c.Y - 1, 5, 3), HatInk);
+        DrawRect(new Rect2(c.X - 1, c.Y - 2, 3, 5), HatInk);
+        DrawRect(new Rect2(c.X - 1, c.Y - 1, 3, 3), fill);
+    }
+
+    void DrawHat(Rect2 box)
+    {
+        if (Hat == Assistant.Hat.None) return;
+        // Sits on the head: just under the top of the body sprite, centred.
+        int top = (int)box.Position.Y + 5;
+        switch (Hat)
+        {
+            case Assistant.Hat.Witch:
+            {
+                var hat = new Color("3d2b56");
+                var band = new Color("f08a24");
+                Cone(top - 2, 9, 18, 6, r => r is 2 or 3 ? band : hat);
+                Row(top - 1, -15, 15, hat);
+                Row(top, -14, 14, new Color("2c1f40"));
+                DrawRect(new Rect2(-15, top + 1, 31, 1), HatInk);
+                break;
+            }
+            case Assistant.Hat.Santa:
+            {
+                var red = new Color("d8322a");
+                Cone(top - 2, 10, 14, 10, r => r < 2 ? new Color("b8221d") : red);
+                Pompom(new Vector2(11, top - 16), Colors.White);
+                Row(top - 1, -12, 12, Colors.White);
+                Row(top, -12, 12, new Color("e6e2dc"));
+                DrawRect(new Rect2(-12, top + 1, 25, 1), HatInk);
+                break;
+            }
+            case Assistant.Hat.Party:
+            {
+                var a = new Color("3fa7e0");
+                var b = new Color("ffd23f");
+                Cone(top, 7, 15, 0, r => (r / 3) % 2 == 0 ? a : b);
+                Pompom(new Vector2(0, top - 16), new Color("ff5d8f"));
+                DrawRect(new Rect2(-8, top + 1, 17, 1), HatInk);
+                break;
+            }
+            case Assistant.Hat.Straw:
+            {
+                var straw = new Color("e7c46a");
+                var weave = new Color("c9a24a");
+                for (int r = 0; r < 6; r++)
+                {
+                    int w = 8 - (r == 5 ? 2 : 0);
+                    Row(top - 2 - r, -w, w, r % 2 == 0 ? straw : weave);
+                }
+                Row(top - 3, -8, 8, new Color("d43c2f")); // band
+                Row(top - 1, -18, 18, straw);
+                Row(top, -17, 17, weave);
+                DrawRect(new Rect2(-18, top + 1, 37, 1), HatInk);
+                // A patch.
+                DrawRect(new Rect2(3, top - 6, 3, 2), new Color("6aa84f"));
+                break;
+            }
+            case Assistant.Hat.Bunny:
+            {
+                var white = new Color("f4f1ec");
+                var pink = new Color("f2a7bd");
+                foreach (int side in new[] { -1, 1 })
+                    for (int r = 0; r < 16; r++)
+                    {
+                        int cx = side * (6 + r / 5);
+                        Row(top - r, cx - 2, cx + 2, white);
+                        if (r is > 2 and < 13) DrawRect(new Rect2(cx - 1, top - r, 3, 1), pink);
+                    }
+                break;
+            }
+            case Assistant.Hat.Heart:
+            {
+                var red = new Color("e8364f");
+                string[] heart = { ".##.##.", "#######", "#######", ".#####.", "..###..", "...#..." };
+                for (int y = 0; y < heart.Length; y++)
+                    for (int x = 0; x < heart[y].Length; x++)
+                        if (heart[y][x] == '#')
+                        {
+                            DrawRect(new Rect2(x - 3 - 1, top - 9 + y, 3, 1), HatInk);
+                        }
+                for (int y = 0; y < heart.Length; y++)
+                    for (int x = 0; x < heart[y].Length; x++)
+                        if (heart[y][x] == '#') DrawRect(new Rect2(x - 3, top - 9 + y, 1, 1), y == 1 && x == 1 ? Colors.White : red);
+                break;
+            }
         }
     }
 

@@ -47,6 +47,8 @@ public partial class SpeechBubble : PanelContainer
     const int Radius = 5;
 
     readonly Label _label = new();
+    readonly VBoxContainer _box = new();
+    readonly HBoxContainer _choices = new();
     float _shown;
     float _hideTimer;
     float _age;
@@ -56,6 +58,12 @@ public partial class SpeechBubble : PanelContainer
 
     /// <summary>True while the typewriter effect is still revealing text.</summary>
     public bool IsTyping => Visible && _shown < _label.GetTotalCharacterCount();
+
+    /// <summary>Answer buttons are showing (a question is waiting).</summary>
+    public bool HasChoices => Visible && _choices.Visible;
+
+    /// <summary>A bubble popped up (for the sound).</summary>
+    public event System.Action? Popped;
 
     public override void _Ready()
     {
@@ -69,13 +77,66 @@ public partial class SpeechBubble : PanelContainer
         _label.AddThemeFontSizeOverride("font_size", 16);
         _label.AddThemeColorOverride("font_color", PixelTheme.Ink);
         _label.AddThemeConstantOverride("line_spacing", 1);
-        AddChild(_label);
+        _box.AddThemeConstantOverride("separation", 8);
+        _box.AddChild(_label);
+        _choices.AddThemeConstantOverride("separation", 6);
+        _choices.Alignment = BoxContainer.AlignmentMode.Center;
+        _choices.Visible = false;
+        _box.AddChild(_choices);
+        AddChild(_box);
         Visible = false;
         // Lives in the shared world canvas (drawn on every monitor's window); clicks are handled by Main.
         MouseFilter = MouseFilterEnum.Ignore;
     }
 
     public void Show(string text, float seconds)
+    {
+        SetChoices(System.Array.Empty<string>());
+        Open(text, seconds);
+    }
+
+    /// <summary>A question with answer buttons; it stays up longer, waiting for a click.</summary>
+    public void Ask(string text, string[] choices, float seconds = 25)
+    {
+        SetChoices(choices);
+        Open(text, seconds);
+    }
+
+    /// <summary>Index of the answer button under the point, or -1.</summary>
+    public int ChoiceAt(Vector2 p)
+    {
+        if (!HasChoices || IsTyping) return -1;
+        for (int i = 0; i < _choices.GetChildCount(); i++)
+            if (_choices.GetChild<Control>(i).GetGlobalRect().HasPoint(p)) return i;
+        return -1;
+    }
+
+    void SetChoices(string[] choices)
+    {
+        foreach (var child in _choices.GetChildren())
+        {
+            _choices.RemoveChild(child);
+            child.QueueFree();
+        }
+        foreach (var text in choices)
+        {
+            // Pills like the shout bubble's snooze button; clicks are polled from Windows (see Main).
+            var pill = new Label { Text = text, MouseFilter = MouseFilterEnum.Ignore };
+            pill.AddThemeFontOverride("font", PixelTheme.RoundFont(800));
+            pill.AddThemeFontSizeOverride("font_size", 14);
+            pill.AddThemeColorOverride("font_color", PixelTheme.Paper);
+            pill.AddThemeStyleboxOverride("normal", new StyleBoxFlat
+            {
+                BgColor = PixelTheme.Ink,
+                CornerRadiusTopLeft = 10, CornerRadiusTopRight = 10, CornerRadiusBottomLeft = 10, CornerRadiusBottomRight = 10,
+                ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 4, ContentMarginBottom = 5,
+            });
+            _choices.AddChild(pill);
+        }
+        _choices.Visible = choices.Length > 0;
+    }
+
+    void Open(string text, float seconds)
     {
         _shown = 0;
         _age = 0;
@@ -87,6 +148,7 @@ public partial class SpeechBubble : PanelContainer
         Size = Vector2.Zero; // shrink-wrap to the new text
         _hideTimer = Mathf.Max(seconds, 2.5f + text.Length * 0.055f);
         Visible = true;
+        Popped?.Invoke();
     }
 
     public override void _Process(double delta)

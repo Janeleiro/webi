@@ -22,8 +22,9 @@ companhia com reações pré-programadas, lembretes, pomodoro e monitor do siste
 dotnet test tests\Webi.Tests
 ```
 
-Testes xUnit da lógica que não depende do motor: config, lembretes e adiamento, identificação de apps e
-bordas das janelas (`SurfaceMap`). O projeto de testes fica fora do build do Godot (`.gdignore` e
+Testes xUnit da lógica que não depende do motor: config, lembretes e adiamento, identificação de apps,
+bordas das janelas (`SurfaceMap`), leitura dos timers, calendário (Páscoa, feriados, aniversário), amizade
+e resumo do dia. O projeto de testes fica fora do build do Godot (`.gdignore` e
 `Compile Remove` no `Webi.csproj`).
 
 ## Gerar o .exe
@@ -92,6 +93,63 @@ um alerta.
   (config `app_comments`). As falas e as regras de identificação ficam em `src/Assistant/AppCatalog.cs`.
   Com `WEBI_DEBUG=1`, o log mostra o app identificado e o processo em primeiro plano.
 
+## Caça, cenas e reações
+
+- **Moscas:** de tempos em tempos (3-8 min) aparece uma mosca em pixel art que voa pela tela, pousa nas
+  bordas das janelas e vai embora depois de uns 2 min. A Webi chega perto, faz o **bote** (agachada, patas da
+  frente erguidas, abdômen rebolando) e pula nela. Às vezes a mosca percebe e foge. Mosca que voa numa teia de
+  canto fica presa: a Webi vai até a teia e come. Menu "🪰 Moscas para caçar" (config `bugs`).
+- **Caçar o cursor:** com o mouse parado perto dela, às vezes ela faz o bote e pula nele. Se o cursor se mexer
+  antes, ela disfarça limpando as patinhas.
+- **Espiar:** em cima de uma janela, ela se esconde atrás da borda e só os olhos e as patas da frente aparecem.
+  Chegar perto com o mouse a faz pular com um "Achou!".
+- **Tropeço** (às vezes, correndo), **bocejo** alguns segundos antes de dormir e **"Z"s** em pixel art subindo
+  enquanto dorme (no lugar do balão "z z z").
+- **Carona:** arrastar a janela em que ela está rende um comentário; sacudir com força a derruba.
+
+## Datas especiais
+
+Menu "🎃 Datas especiais" (config `seasonal`): chapéu de bruxa na semana do Halloween, gorro de Papai Noel em
+dezembro, chapéu de festa no Ano Novo, no Carnaval e no **seu aniversário** ("🎂 Meu aniversário...", config
+`birthday` como `dd/mm`), chapéu de palha na festa junina, orelhas na Páscoa e coração no Dia dos Namorados.
+No dia em si ela cumprimenta uma vez (feriados nacionais, sexta e segunda também) e solta falas temáticas.
+Carnaval e Páscoa são calculados. Tudo em `src/Assistant/Seasons.cs`.
+
+## Conversa e amizade
+
+- **Puxar assunto** (menu "🗨️", config `small_talk`): a cada 15-30 min de uso ela faz uma **pergunta com
+  botões** no balão ("Bebeu água?", "Como você tá?", almoço, café, postura, "vai dormir?"...), conta uma
+  **curiosidade de aranha** ou solta uma fala da data. A resposta muda a reação; "💧 Bebi!" conta no resumo.
+- **Eventos do PC** (mesma opção): Print Screen ou Win+Shift+S, pendrive conectado/removido, internet caiu/voltou
+  (precisa se repetir em duas checagens) e som mudo/desmudo.
+- **8 horas de PC** no dia geram um aviso, e depois das 18h (com 2h de uso) ela oferece o resumo do dia.
+- **Amizade** ("💖 Nossa amizade"): cliques, respostas, moscas, pomodoros e meia hora de companhia dão pontos
+  (no máximo 20 por dia); clicar demais tira. Níveis: Conhecida, Colega (25), Amiga (90) e Melhor amiga (220).
+  Cada nível muda o "oi" do início e libera falas novas; no último ela dá **abraço** de oito patas.
+
+## Timers, post-its e resumo
+
+- **⏲ Novo timer / lembrete...:** abre uma caixa de texto. "15", "15 min", "1h30 reunião", "2 horas", "em 10 min
+  ligar" são durações; "14:30 dentista", "às 9", "14h" são horários (horário que já passou vale para amanhã).
+  "Nh" sem "às" é horário a partir de 5h, então "1h30" é duração. Ela grita na hora, como os lembretes. Os
+  timers sobrevivem a reiniciar o app; "⏰ Próximos lembretes" os lista e "🗑 Cancelar timers" apaga todos.
+- **📝 Novo post-it...:** até 4 notas penduradas em fios de seda à direita do monitor principal. Clicar numa
+  nota a tira.
+- **📊 Resumo do dia:** tempo de PC, apps mais usados, pomodoros, copos d'água, moscas e cutucadas.
+
+## Atalhos e sons
+
+- **Ctrl+Alt+W** (Alt esquerdo) chama a Webi até embaixo do cursor; **Ctrl+Alt+H** esconde e mostra. O Alt
+  direito não conta porque AltGr+W digita "?" no teclado ABNT2. Escondida, os alertas esperam.
+- **🔊 Sons** (config `sounds`, desligado por padrão): efeitos 8-bit sintetizados no código (balão, pulo,
+  pouso, grito, mosca, teia rasgando, nível novo), sem arquivos de áudio.
+
+## O que ela lembra
+
+`%APPDATA%\Godot\app_userdata\Webi\state.json` guarda a amizade, os números do dia (zerados a cada dia), os
+timers e os post-its. É gravado a cada minuto e ao sair, e nada sai do PC. Se o arquivo estiver corrompido,
+ela começa do zero.
+
 ## Vários monitores
 
 A Webi usa todos os monitores conectados. Cada monitor tem sua própria janela transparente, e todas
@@ -137,6 +195,11 @@ aro é identificado pela posição (anel externo do olho), porque compartilha as
 | `cpu_alert_percent`, `battery_alert_percent` | 90, 20 | |
 | `sleep_after_idle_minutes` | 5 | |
 | `hide_on_fullscreen` | `true` | sumir com app em tela cheia |
+| `sounds` | `false` | efeitos sonoros |
+| `bugs` | `true` | moscas para caçar |
+| `small_talk` | `true` | perguntas, curiosidades e eventos do PC |
+| `seasonal` | `true` | chapéus e falas de datas especiais |
+| `birthday` | `""` | aniversário, `dd/mm` |
 
 Valores fora da faixa são corrigidos ao carregar (um lembrete de 0 min, por exemplo, vira 1 min). Se o
 arquivo tiver um erro de JSON, ela avisa, usa os padrões e **não grava nada** até o arquivo ser consertado
@@ -160,7 +223,12 @@ src/Spider/SpiderBrain.cs   comportamento: passear, pular, descer de teia, curio
 src/Spider/Lines.cs         todas as falas e reações pré-programadas
 src/World/Webs.cs           teias: cantos possíveis, geração procedural (canto e orbital gigante), rasgo e varredura
 src/UI/ShoutBubble.cs       balão de grito gigante dos alertas
-src/Assistant/*             lembretes/pomodoro, monitor do sistema, app em primeiro plano (AppWatcher + AppCatalog)
+src/Assistant/*             lembretes/pomodoro, monitor do sistema, app em primeiro plano (AppWatcher + AppCatalog),
+                            timers (QuickTimers), datas (Seasons), amizade, conversa (SmallTalk), eventos do PC
+src/State.cs                state.json: amizade, números do dia, timers, post-its
+src/World/Bugs.cs           moscas: voo, pouso, presas na teia
+src/UI/*                    balões (com botões de resposta), post-its, caixa de texto, sons sintetizados
+src/Win32/Hotkeys.cs        atalhos globais (lidos do estado do teclado)
 tests/Webi.Tests            testes xUnit
 ```
 
@@ -182,7 +250,7 @@ layout e rode o script de novo. Comprimentos e espessuras das pernas ficam no to
 
 Depuração visual: `WEBI_SNAPSHOT=<pasta>` salva quadros do rig em PNG (`WEBI_SNAPSHOT_FPS` e
 `WEBI_SNAPSHOT_MAX` controlam frequência e quantidade). `WEBI_DEMO=1` troca o comportamento por uma
-sequência fixa de todas as animações: aceno, limpeza, bater o pé, espreguiçar, dança, andar, correr
+sequência fixa de todas as animações: aceno, limpeza, bater o pé, espreguiçar, dança, bote, bocejo, abraço, tropeço, espiar, andar, correr
 e pular.
 
 ## Animação
@@ -196,7 +264,9 @@ e pular.
   quando está parada.
 - **Olhos:** sempre acompanham o cursor (menos dormindo).
 - **Gestos:** aceno (para o cursor e ao ser cutucada), limpeza dos pedipalpos, bater o pé
-  (impaciente), espreguiçar (ao acordar) e dança (pomodoro e alertas felizes). As patas
+  (impaciente), espreguiçar (ao acordar), dança (pomodoro e alertas felizes), bote (antes de pular numa
+  presa), bocejo, tropeço, abraço e espiar (o sprite é recortado na linha da borda onde ela está).
+- **Chapéus:** desenhados pixel a pixel no rig (`SpiderRig.DrawHat`), por cima da cabeça. As patas
   dos gestos seguem um arco em volta do quadril, para nunca cruzarem o rosto.
 - **Pulo:** agachamento proporcional à distância, pernas recolhidas na subida e abertas na descida,
   inclinação conforme a velocidade, giro antecipado para a superfície de pouso e pernas abertas no impacto.

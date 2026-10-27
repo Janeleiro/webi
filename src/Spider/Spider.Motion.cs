@@ -37,6 +37,7 @@ public partial class Spider
         }
 
         UpdateVisuals(dt);
+        UpdateZs(dt);
         QueueRedraw();
         Snapshot(dt);
     }
@@ -86,6 +87,7 @@ public partial class Spider
                 _velocity = v;
                 _crouch = 0;
                 Contact = p0 + v.Normalized() * 2;
+                Jumped?.Invoke();
                 return;
             }
         }

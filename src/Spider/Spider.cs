@@ -11,7 +11,11 @@ public enum Mode { Grounded, Airborne, Hanging, Dragged, Weaving }
 public enum Face { Normal, Happy, Sleepy, Sleeping, Surprised, Sad }
 
 /// <summary>Leg-driven gestures played while standing.</summary>
-public enum Gesture { None, Wave, Groom, Tap, Stretch, Dance }
+/// <remarks>
+/// Peek: sinks behind the edge it stands on, only the eyes and front feet showing. Stalk: crouched, front legs
+/// up and the body wiggling before a pounce. Trip: stumbles and catches itself. Hug: both front legs wrap around.
+/// </remarks>
+public enum Gesture { None, Wave, Groom, Tap, Stretch, Dance, Peek, Stalk, Yawn, Trip, Hug }
 
 /// <summary>
 /// The spider's body: locomotion over desktop edges, jumps, silk, dragging and the procedural legs.
@@ -61,6 +65,14 @@ public partial class Spider : Node2D
 
     public event Action? Landed;
     public event Action? EdgeReached;
+    /// <summary>Took off on a jump (for the sound).</summary>
+    public event Action? Jumped;
+    /// <summary>The window it stands on moved, with the speed it was carried at (px/s).</summary>
+    public event Action<float>? Carried;
+
+    /// <summary>Hat worn for the season (drawn by the rig).</summary>
+    public Assistant.Hat Hat { get => _rig?.Hat ?? _pendingHat; set { _pendingHat = value; if (_rig != null) _rig.Hat = value; } }
+    Assistant.Hat _pendingHat;
 
     SurfaceMap _map = null!;
     /// <summary>All monitors' bounding box (falling outside it means lost).</summary>
@@ -131,9 +143,14 @@ public partial class Spider : Node2D
             RenderTargetUpdateMode = SubViewport.UpdateMode.Always,
         };
         AddChild(_viewport);
-        _rig = new SpiderRig { Position = new Vector2(ViewportSize / 2, ViewportSize / 2) };
+        _rig = new SpiderRig { Position = new Vector2(ViewportSize / 2, ViewportSize / 2), Hat = _pendingHat };
         _viewport.AddChild(_rig);
-        _sprite = new Sprite2D { Texture = _viewport.GetTexture(), TextureFilter = TextureFilterEnum.Nearest };
+        // Not centred, so cropping the region (peeking over an edge) keeps the body where it is.
+        _sprite = new Sprite2D
+        {
+            Texture = _viewport.GetTexture(), TextureFilter = TextureFilterEnum.Nearest,
+            Centered = false, Offset = new Vector2(-ViewportSize / 2, -ViewportSize / 2),
+        };
         AddChild(_sprite);
 
         for (int i = 0; i < 8; i++)
@@ -231,6 +248,11 @@ public partial class Spider : Node2D
             Gesture.Tap => 1.8f,
             Gesture.Stretch => 2.6f,
             Gesture.Dance => 2.8f,
+            Gesture.Peek => 5f,
+            Gesture.Stalk => 1.6f,
+            Gesture.Yawn => 2.2f,
+            Gesture.Trip => 1.3f,
+            Gesture.Hug => 2.4f,
             _ => 0,
         };
     }
@@ -411,6 +433,14 @@ public partial class Spider : Node2D
     /// <summary>Lets go of everything and falls.</summary>
     public void Fall() => LaunchAirborne(Vector2.Zero);
 
+    /// <summary>Thrown off whatever it stands on (a window shaken hard).</summary>
+    public void Fling(Vector2 velocity)
+    {
+        if (State is Mode.Dragged or Mode.Weaving) return;
+        BodyCenter += Up * 6 * PixelScale;
+        LaunchAirborne(velocity);
+    }
+
     void LaunchAirborne(Vector2 velocity)
     {
         if (State == Mode.Hanging)
@@ -424,6 +454,8 @@ public partial class Spider : Node2D
 
     // ------------------------------------------------------------------ world sync
 
+    double _lastResync;
+
     /// <summary>Call after the surface map is rebuilt: follows moving windows, falls if the ground vanished.</summary>
     public void Resync()
     {
@@ -432,6 +464,15 @@ public partial class Spider : Node2D
         {
             var surf = _map.Find(_keyOwner, _keySide, _keyOffset, out float s);
             if (surf == null) { Fall(); return; }
+            // Carried by a moving window: how fast (the map is rebuilt a few times a second).
+            double now = Time.GetTicksMsec() / 1000.0;
+            if (surf.Owner >= 0 && surf.Owner == Surface?.Owner && !IsWalking)
+            {
+                float moved = surf.PointAt(s).DistanceTo(Surface.PointAt(S));
+                float elapsed = (float)Math.Max(now - _lastResync, 0.05);
+                if (moved > 2) Carried?.Invoke(moved / elapsed);
+            }
+            _lastResync = now;
             Surface = surf;
             S = s;
             KeepOutOfCorners();

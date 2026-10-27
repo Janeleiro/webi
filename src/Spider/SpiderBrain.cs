@@ -17,7 +17,6 @@ public sealed class SpiderBrain
     float _decisionTimer = 1.5f;
     float _faceTimer;
     Vector2 _lastCursor;
-    float _zzzTimer;
     float _holdTimer;
     float _waveCooldown;
     readonly Queue<Action> _demo = new();
@@ -65,6 +64,29 @@ public sealed class SpiderBrain
     /// <summary>Short line to show in the speech bubble (text, seconds).</summary>
     public event Action<string, float>? Say;
 
+    /// <summary>Flies to hunt (set by Main).</summary>
+    public BugLayer? Bugs { get; set; }
+    /// <summary>A fly was caught and eaten.</summary>
+    public event Action? FlyEaten;
+    /// <summary>Friendship level (unlocks click lines and the hug), set by Main.</summary>
+    public Func<int>? FriendLevel { get; set; }
+
+    // Hunting a fly or the resting cursor: walk closer, stalk (crouched, wiggling), pounce.
+    enum Hunt { None, Approach, Stalk, Pounce }
+    Hunt _hunt;
+    Fly? _prey;
+    bool _preyCursor, _preyNotices, _caught, _groomOnLanding;
+    Vector2 _stalkCursor;
+    float _huntTimer, _huntCooldown = 20, _cursorHuntCooldown = 60, _cursorStill;
+    int _huntSteps;
+    /// <summary>A fly stuck in one of the webs, and the time left before eating it once there.</summary>
+    Fly? _webMeal;
+    float _eatTimer;
+
+    float _tripTimer, _peekCooldown = 60, _carriedCooldown;
+    bool _tripLine, _peeking, _yawned, _summonPending, _summonSay;
+    Vector2 _summonAt;
+
     public SpiderBrain(Spider spider, SurfaceMap map)
     {
         _spider = spider;
@@ -83,6 +105,11 @@ public sealed class SpiderBrain
         _demo.Enqueue(() => _spider.PlayGesture(Gesture.Tap, -1));
         _demo.Enqueue(() => _spider.PlayGesture(Gesture.Stretch));
         _demo.Enqueue(() => _spider.PlayGesture(Gesture.Dance));
+        _demo.Enqueue(() => _spider.PlayGesture(Gesture.Stalk, 1));
+        _demo.Enqueue(() => _spider.PlayGesture(Gesture.Yawn));
+        _demo.Enqueue(() => _spider.PlayGesture(Gesture.Hug));
+        _demo.Enqueue(() => _spider.PlayGesture(Gesture.Trip, 1));
+        _demo.Enqueue(() => _spider.PlayGesture(Gesture.Peek));
         _demo.Enqueue(() => _spider.Walk(160, -1));
         _demo.Enqueue(() => _spider.Walk(260, 1, 64));
         _demo.Enqueue(() => _spider.JumpTo(_spider.Contact + new Vector2(-260, 0)));
@@ -107,10 +134,25 @@ public sealed class SpiderBrain
         var cursorVel = (cursor - _lastCursor) / Mathf.Max(dt, 0.001f);
         _lastCursor = cursor;
         float cursorDist = cursor.DistanceTo(_spider.BodyCenter);
+        _cursorStill = cursorVel.Length() < 20 ? _cursorStill + dt : 0;
+        _huntCooldown -= dt;
+        _cursorHuntCooldown -= dt;
+        _peekCooldown -= dt;
+        _carriedCooldown -= dt;
 
         // The eyes always follow the mouse (except while asleep, below).
         _spider.LookTarget = cursor;
         if (TickStage(dt, idleSeconds)) return;
+
+        // ---- a yawn a few seconds before dozing off
+        if (idleSeconds < 1) _yawned = false;
+        else if (!Asleep && !_yawned && idleSeconds > sleepAfterSeconds - 6 && _spider.State == Mode.Grounded
+                 && !_spider.IsWalking && _spider.CurrentGesture == Gesture.None && _task == WebTask.None && _hunt == Hunt.None)
+        {
+            _yawned = true;
+            _spider.PlayGesture(Gesture.Yawn);
+            Say?.Invoke(Lines.Pick(Lines.Yawn), 2.5f);
+        }
 
         // ---- sleep
         if (!Asleep && idleSeconds > sleepAfterSeconds && _spider.State == Mode.Grounded)
@@ -132,10 +174,9 @@ public sealed class SpiderBrain
             }
             else
             {
+                // The Zs float up from the head (drawn by the spider).
                 _faceTimer -= dt;
                 if (_faceTimer <= 0) _spider.Expression = Face.Sleeping;
-                _zzzTimer -= dt;
-                if (_zzzTimer <= 0) { _zzzTimer = 6f; Say?.Invoke("z z z", 2.5f); }
                 return;
             }
         }
@@ -159,8 +200,11 @@ public sealed class SpiderBrain
             return;
         }
 
+        if (TickSummon(cursor)) return;
+        if (TickHunt(dt, cursor)) return;
         if (TickWebTask(dt)) return;
         if (_spider.State == Mode.Hanging) { TickHanging(dt); return; }
+        TickLittleScenes(dt, cursorDist);
         if (_spider.State != Mode.Grounded || _spider.IsWalking) return;
 
         _decisionTimer -= dt;
@@ -177,6 +221,9 @@ public sealed class SpiderBrain
 
         // Upside down or on a wall for a while? Most of the time go back down on silk.
         if (!surf.IsFloorLike && _rng.Randf() < 0.45f && _spider.DropOnSilk()) return;
+
+        if (TryStartHunt(cursor, cursorDist)) return;
+        if (TryPeek(surf)) return;
 
         // Now and then: weave a web in a free corner, or go hang from one already there.
         if (AutoWebs && Webs != null)
@@ -215,7 +262,12 @@ public sealed class SpiderBrain
         else if (roll < 0.68f)
         {
             int dir = _rng.Randf() < 0.5f ? -1 : 1;
-            if (_rng.Randf() < 0.2f) _spider.Walk(_rng.RandfRange(150, 400), dir, 64); // scurry
+            if (_rng.Randf() < 0.2f)
+            {
+                _spider.Walk(_rng.RandfRange(150, 400), dir, 64); // scurry
+                // Now and then it trips over its own feet halfway.
+                if (_rng.Randf() < 0.15f) _tripTimer = _rng.RandfRange(0.8f, 2f);
+            }
             else _spider.Walk(_rng.RandfRange(40, 320), dir, _rng.RandfRange(18, 30));
         }
         else if (roll < 0.9f)
@@ -231,6 +283,16 @@ public sealed class SpiderBrain
 
     void TickHanging(float dt)
     {
+        if (_webMeal != null)
+        {
+            if (_webMeal.Gone || _webMeal.State != FlyState.Stuck) _webMeal = null;
+            else if (_spider.HangingWeb != null && _spider.HangingWeb == _webMeal.Web && (_eatTimer -= dt) <= 0)
+            {
+                Bugs?.Eat(_webMeal);
+                _webMeal = null;
+                Ate();
+            }
+        }
         if (_spider.HangingWeb != null)
         {
             // Swing on the web for a while, then lower down to whatever is below.
@@ -267,6 +329,17 @@ public sealed class SpiderBrain
 
     void OnLanded()
     {
+        if (_groomOnLanding)
+        {
+            _groomOnLanding = false;
+            _spider.PlayGesture(Gesture.Groom);
+        }
+        if (_summonSay)
+        {
+            _summonSay = false;
+            React(Face.Happy, 1.5f);
+            Say?.Invoke(Lines.Pick(Lines.Summoned), 2.5f);
+        }
         if (_rng.Randf() < 0.25f) React(Face.Happy, 1.2f);
         _decisionTimer = Mathf.Min(_decisionTimer, _rng.RandfRange(0.4f, 1.5f));
     }
@@ -345,7 +418,11 @@ public sealed class SpiderBrain
             return Lines.Pick(Lines.TooManyPokes);
         }
 
-        var reaction = _rng.Randf() < 0.25f ? Lines.Greeting() : Lines.Pick(Lines.Pokes);
+        int level = FriendLevel?.Invoke() ?? 0;
+        var pool = Lines.Pokes.AsEnumerable();
+        if (level >= 2) pool = pool.Concat(Lines.PokesFriend);
+        if (level >= 3) pool = pool.Concat(Lines.PokesBest);
+        var reaction = _rng.Randf() < 0.25f ? Lines.Greeting() : Lines.Pick(pool.ToArray());
         React(reaction.Face, 2f);
         if (reaction.Gesture == Gesture.Wave) Greet(cursor);
         else if (reaction.Gesture != Gesture.None) _spider.PlayGesture(reaction.Gesture);
@@ -457,8 +534,6 @@ public sealed class SpiderBrain
                 {
                     _spider.Expression = Face.Sleeping;
                     _spider.LookTarget = null;
-                    _zzzTimer -= dt;
-                    if (_zzzTimer <= 0) { _zzzTimer = 6f; Say?.Invoke("z z z", 2.5f); }
                     if (idleSeconds < 1)
                     {
                         Asleep = false;
@@ -668,6 +743,12 @@ public sealed class SpiderBrain
     {
         _spider.HangFrom(web);
         _webHangTimer = _rng.RandfRange(8, 20);
+        if (_webMeal?.Web == web)
+        {
+            _eatTimer = 1.5f;
+            _webHangTimer = Mathf.Max(_webHangTimer, 4);
+            return;
+        }
         if (_rng.Randf() < 0.5f) Say?.Invoke(Lines.Pick(Lines.WebHang), 3);
     }
 
@@ -694,5 +775,287 @@ public sealed class SpiderBrain
         if (_spider.Surface == null) return;
         _waveCooldown = 25;
         _spider.PlayGesture(Gesture.Wave, (cursor - _spider.Contact).Dot(_spider.Surface.Tangent) >= 0 ? 1 : -1);
+    }
+
+    // ------------------------------------------------------------------ hunting
+
+    /// <summary>A fly got stuck in a web: go and get it soon.</summary>
+    public void OnFlyStuck() => _decisionTimer = Mathf.Min(_decisionTimer, 1f);
+
+    bool TryStartHunt(Vector2 cursor, float cursorDist)
+    {
+        var surf = _spider.Surface;
+        if (surf == null || !surf.IsFloorLike) return false;
+
+        // A fly stuck in one of the corner webs: go hang there and eat it.
+        if (Bugs != null && Webs != null && _webMeal == null)
+        {
+            var stuck = Bugs.Flies.FirstOrDefault(f => f.State == FlyState.Stuck && f.Web is { Alive: true, Visible: true, Giant: false });
+            if (stuck != null && Webs.Spots(_map, freeOnly: false).Any(sp => sp.Key == stuck.Web!.Key))
+            {
+                _webMeal = stuck;
+                BeginTask(WebTask.GoHang, stuck.Web!.Key);
+                Say?.Invoke(Lines.Pick(Lines.FlyInWeb), 3);
+                return true;
+            }
+        }
+
+        if (Bugs != null && _huntCooldown <= 0)
+        {
+            var fly = Bugs.Flies
+                .Where(f => f.State is FlyState.Flying or FlyState.Resting && f.Pos.DistanceTo(_spider.BodyCenter) < 700)
+                .OrderBy(f => f.Pos.DistanceTo(_spider.BodyCenter)).FirstOrDefault();
+            if (fly != null && _rng.Randf() < 0.75f)
+            {
+                _prey = fly;
+                _preyCursor = false;
+                _hunt = Hunt.Approach;
+                _huntTimer = 20;
+                _huntSteps = 0;
+                if (_rng.Randf() < 0.5f) Say?.Invoke(Lines.Pick(Lines.FlySpotted), 2.5f);
+                return true;
+            }
+        }
+
+        // The cursor resting nearby looks like prey.
+        if (_cursorHuntCooldown <= 0 && _cursorStill > 1.5f && cursorDist is > 120 and < 420 && _rng.Randf() < 0.3f)
+        {
+            _cursorHuntCooldown = 120;
+            _preyCursor = true;
+            _prey = null;
+            _stalkCursor = cursor;
+            _hunt = Hunt.Stalk;
+            _huntTimer = 6;
+            _spider.PlayGesture(Gesture.Stalk, (cursor - _spider.Contact).Dot(surf.Tangent) >= 0 ? 1 : -1);
+            return true;
+        }
+        return false;
+    }
+
+    void EndHunt()
+    {
+        if (_hunt == Hunt.None) return;
+        _hunt = Hunt.None;
+        _prey = null;
+        _preyCursor = false;
+        _huntCooldown = _rng.RandfRange(15, 40);
+    }
+
+    /// <summary>Runs a hunt. Returns true while it owns the spider.</summary>
+    bool TickHunt(float dt, Vector2 cursor)
+    {
+        if (_hunt == Hunt.None) return false;
+        if (!_preyCursor && (_prey == null || _prey.Gone || (_hunt != Hunt.Pounce && _prey.State is FlyState.Stuck or FlyState.Leaving)))
+        {
+            EndHunt();
+            return false;
+        }
+        var target = _preyCursor ? cursor : _prey!.Pos;
+        _spider.LookTarget = target;
+        _huntTimer -= dt;
+        if (_huntTimer <= 0) { EndHunt(); return false; }
+        int px = _spider.PixelScale;
+
+        switch (_hunt)
+        {
+            case Hunt.Approach:
+            {
+                if (_spider.State != Mode.Grounded) { EndHunt(); return false; }
+                if (_spider.IsWalking || _spider.IsPreparingJump || _spider.CurrentGesture != Gesture.None) return true;
+                var surf = _spider.Surface;
+                if (surf == null) { EndHunt(); return false; }
+                if (target.DistanceTo(_spider.BodyCenter) < 480)
+                {
+                    _hunt = Hunt.Stalk;
+                    // A resting fly sometimes notices the spider before the pounce.
+                    _preyNotices = _prey!.State == FlyState.Resting ? _rng.Randf() < 0.25f : _rng.Randf() < 0.4f;
+                    _spider.PlayGesture(Gesture.Stalk, (target - _spider.Contact).Dot(surf.Tangent) >= 0 ? 1 : -1);
+                    return true;
+                }
+                float along = (target - _spider.Contact).Dot(surf.Tangent);
+                if (++_huntSteps > 4 || Mathf.Abs(along) < 80) { EndHunt(); return false; }
+                _spider.Walk(Mathf.Min(Mathf.Abs(along) - 160, 320), along >= 0 ? 1 : -1, 40);
+                return true;
+            }
+
+            case Hunt.Stalk:
+                if (_spider.State != Mode.Grounded) { EndHunt(); return false; }
+                if (_spider.CurrentGesture == Gesture.Stalk)
+                {
+                    if (_preyNotices && _prey != null && _rng.Randf() < dt * 1.2f)
+                    {
+                        _preyNotices = false;
+                        Bugs?.Startle(_prey, _spider.BodyCenter);
+                    }
+                    return true;
+                }
+                if (_preyCursor && cursor.DistanceTo(_stalkCursor) > 25)
+                {
+                    // The cursor got away before the pounce.
+                    React(Face.Normal, 1);
+                    _spider.PlayGesture(Gesture.Groom);
+                    Say?.Invoke(Lines.Pick(Lines.CursorEscaped), 2.5f);
+                    EndHunt();
+                    return true;
+                }
+                var aim = target;
+                if (!_preyCursor && _prey!.State == FlyState.Flying)
+                {
+                    // Lead a flying target a little.
+                    float t = Mathf.Clamp(_spider.Contact.DistanceTo(aim) / 750f, 0.32f, 0.85f) + 0.15f;
+                    aim += _prey.Vel * t * 0.6f;
+                }
+                // JumpTo aims the feet: put the body (half a body above them) through the target.
+                _spider.JumpTo(aim + new Vector2(0, Spider.BodyHeight * px * 0.6f));
+                _hunt = Hunt.Pounce;
+                _caught = false;
+                _huntTimer = 3;
+                return true;
+
+            case Hunt.Pounce:
+                if (_spider.IsPreparingJump || _spider.State == Mode.Airborne)
+                {
+                    if (!_caught && target.DistanceTo(_spider.BodyCenter) < 28 * px)
+                    {
+                        _caught = true;
+                        if (_preyCursor)
+                        {
+                            React(Face.Happy, 2);
+                            Say?.Invoke(Lines.Pick(Lines.CursorCaught), 2.5f);
+                        }
+                        else
+                        {
+                            Bugs?.Eat(_prey!);
+                            Ate();
+                        }
+                    }
+                    return true;
+                }
+                if (!_caught)
+                {
+                    React(Face.Sad, 1.5f);
+                    Say?.Invoke(Lines.Pick(_preyCursor ? Lines.CursorEscaped : Lines.FlyMissed), 2.5f);
+                    if (_prey != null) Bugs?.Startle(_prey, _spider.BodyCenter);
+                }
+                EndHunt();
+                return false;
+        }
+        return false;
+    }
+
+    /// <summary>A fly was eaten (pounced on or taken from a web).</summary>
+    void Ate()
+    {
+        React(Face.Happy, 2);
+        _groomOnLanding = _spider.State == Mode.Airborne;
+        Say?.Invoke(Lines.Pick(Lines.FlyCaught), 2.5f);
+        FlyEaten?.Invoke();
+    }
+
+    // ------------------------------------------------------------------ little scenes
+
+    /// <summary>Hides behind the window edge it stands on, only the eyes peeking out.</summary>
+    bool TryPeek(Surface surf)
+    {
+        if (_peekCooldown > 0 || surf.Owner < 0 || !surf.IsFloorLike || _rng.Randf() > 0.07f) return false;
+        // Not right next to the top or bottom of the screen, where the body can't sink.
+        var work = WorkAreaAt?.Invoke(_spider.Contact);
+        if (work is { } w && (_spider.Contact.Y < w.Position.Y + 120 || _spider.Contact.Y > w.End.Y - 60)) return false;
+        _peekCooldown = _rng.RandfRange(90, 200);
+        _peeking = true;
+        _spider.PlayGesture(Gesture.Peek);
+        return true;
+    }
+
+    /// <summary>Peekaboo, the stumble and its aftermath.</summary>
+    void TickLittleScenes(float dt, float cursorDist)
+    {
+        if (_peeking)
+        {
+            if (_spider.CurrentGesture == Gesture.Peek && cursorDist < 170)
+            {
+                // Found! Pops up with a little hop.
+                _peeking = false;
+                _spider.StopGesture();
+                React(Face.Happy, 1.5f);
+                Say?.Invoke(Lines.Pick(Lines.Peekaboo), 2);
+                _spider.JumpTo(_spider.Contact);
+            }
+            else if (_spider.CurrentGesture != Gesture.Peek)
+            {
+                _peeking = false;
+                if (_rng.Randf() < 0.4f) Say?.Invoke(Lines.Pick(Lines.Peekaboo), 2);
+            }
+        }
+
+        if (_tripTimer > 0)
+        {
+            if (_spider.State != Mode.Grounded || !_spider.IsWalking) _tripTimer = 0;
+            else if ((_tripTimer -= dt) <= 0)
+            {
+                _spider.PlayGesture(Gesture.Trip, _spider.WalkDir);
+                _tripLine = true;
+            }
+        }
+        if (_tripLine && _spider.CurrentGesture != Gesture.Trip)
+        {
+            _tripLine = false;
+            Say?.Invoke(Lines.Pick(Lines.Tripped), 2.5f);
+            _spider.PlayGesture(Gesture.Groom);
+        }
+    }
+
+    /// <summary>The window under it moved (speed in px/s): a ride, or thrown off when shaken hard.</summary>
+    public void OnCarried(float speed)
+    {
+        if (_stage != Stage.None || _spider.State != Mode.Grounded || Asleep) return;
+        if (speed > 2600)
+        {
+            EndHunt();
+            EndTask();
+            _spider.Fling(new Vector2(_rng.RandfRange(-350, 350), -650));
+            React(Face.Surprised, 1.5f);
+            Say?.Invoke(Lines.Pick(Lines.ShakenOff), 2.5f);
+            _carriedCooldown = 10;
+            return;
+        }
+        if (speed > 250 && _carriedCooldown <= 0)
+        {
+            _carriedCooldown = 45;
+            React(Face.Surprised, 1.2f);
+            Say?.Invoke(Lines.Pick(Lines.Carried), 2.5f);
+        }
+    }
+
+    /// <summary>Called with the shortcut: comes to the floor under the cursor. False while busy with an alert.</summary>
+    public bool Summon(Vector2 cursor)
+    {
+        WakeUp();
+        if (_stage != Stage.None) return false;
+        EndTask();
+        EndHunt();
+        _summonAt = cursor;
+        _summonPending = true;
+        if (_spider.State is Mode.Hanging or Mode.Weaving) _spider.Fall();
+        return true;
+    }
+
+    bool TickSummon(Vector2 cursor)
+    {
+        if (!_summonPending) return false;
+        if (_spider.State is Mode.Airborne or Mode.Dragged || _spider.IsPreparingJump) return true;
+        if (_spider.State != Mode.Grounded) return true;
+        _summonPending = false;
+        var floor = _map.FloorBelow(_summonAt, out _, out float s);
+        var target = floor != null ? floor.PointAt(Mathf.Clamp(s, 40, Mathf.Max(40, floor.Length - 40))) : _summonAt;
+        if (_spider.Contact.DistanceTo(target) < 60)
+        {
+            Say?.Invoke(Lines.Pick(Lines.Summoned), 2.5f);
+            Greet(cursor);
+            return true;
+        }
+        _summonSay = true;
+        _spider.JumpTo(target);
+        return true;
     }
 }

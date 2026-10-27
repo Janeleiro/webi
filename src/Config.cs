@@ -42,6 +42,17 @@ public sealed class Config
     /// <summary>Hide while a fullscreen app (game, video) is in the foreground.</summary>
     public bool HideOnFullscreen { get; set; } = true;
 
+    /// <summary>Little synthesized sound effects (bubble pop, jumps, shouts).</summary>
+    public bool Sounds { get; set; } = false;
+    /// <summary>Flies show up now and then for Webi to hunt.</summary>
+    public bool Bugs { get; set; } = true;
+    /// <summary>Questions with buttons, spider facts and reactions to PC events (print screen, USB, internet, mute).</summary>
+    public bool SmallTalk { get; set; } = true;
+    /// <summary>Hats and lines for holidays (Halloween, Christmas, festa junina...) and the birthday.</summary>
+    public bool Seasonal { get; set; } = true;
+    /// <summary>The user's birthday as "dd/mm" (empty = not set).</summary>
+    public string Birthday { get; set; } = "";
+
     static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true,
@@ -93,6 +104,7 @@ public sealed class Config
         CpuAlertPercent = Math.Clamp(CpuAlertPercent, 30, 100);
         BatteryAlertPercent = Math.Clamp(BatteryAlertPercent, 1, 99);
         SleepAfterIdleMinutes = Math.Clamp(SleepAfterIdleMinutes, 1, 24 * 60);
+        Birthday = Assistant.Seasons.TryParseBirthday(Birthday ?? "", out int d, out int m) ? $"{d:00}/{m:00}" : "";
     }
 
     public void Save()

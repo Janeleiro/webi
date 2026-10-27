@@ -46,8 +46,23 @@ public partial class Spider
         _sprite.Position = snapped;
         _sprite.Scale = new Vector2(PixelScale, PixelScale);
 
+        // Peeking: everything below the edge it stands on is hidden (it is "behind" the window or taskbar).
+        bool peeking = CurrentGesture == Gesture.Peek && State == Mode.Grounded && Surface is { IsFloorLike: true };
+        _sprite.RegionEnabled = peeking;
+        if (peeking)
+        {
+            float line = ViewportSize / 2f + (Contact.Y - snapped.Y) / PixelScale;
+            _sprite.RegionRect = new Rect2(0, 0, ViewportSize, Mathf.Clamp(Mathf.Floor(line), 0, ViewportSize));
+        }
+
         _rig.Angle = visualAngle;
-        _rig.Expression = Expression == Face.Normal && CurrentGesture is Gesture.Stretch or Gesture.Dance ? Face.Happy : Expression;
+        _rig.Expression = Expression != Face.Normal ? Expression : CurrentGesture switch
+        {
+            Gesture.Stretch or Gesture.Dance or Gesture.Hug => Face.Happy,
+            Gesture.Yawn => Face.Sleepy,
+            Gesture.Stalk or Gesture.Trip => Face.Surprised,
+            _ => Face.Normal,
+        };
         _rig.Fidget = Fidget || CurrentGesture == Gesture.Groom || State == Mode.Weaving;
         _rig.Speaking = Speaking;
         _rig.Time = _time;
@@ -102,6 +117,10 @@ public partial class Spider
             Gesture.Dance => -Mathf.Abs(Mathf.Sin(t * 8)) * 3f * env,
             Gesture.Stretch => Mathf.Sin(t / _gestureDuration * Mathf.Pi) * 3f - (t < 0.4f ? Mathf.Sin(t / 0.4f * Mathf.Pi) * 3 : 0),
             Gesture.Groom => -1.5f * env,
+            Gesture.Peek => -20f * env,
+            Gesture.Stalk => -5f * env + Mathf.Sin(t * 22) * 0.6f * env,
+            Gesture.Yawn => Mathf.Sin(Mathf.Clamp(t / _gestureDuration, 0, 1) * Mathf.Pi) * 3f,
+            Gesture.Trip => t < 0.25f ? -7f * (t / 0.25f) : -7f * Mathf.Max(0, 1 - (t - 0.25f) / 0.6f),
             _ => 0,
         };
     }
@@ -114,6 +133,10 @@ public partial class Spider
             Gesture.Wave => -_gestureSide * 0.09f * env,
             Gesture.Dance => Mathf.Sin(t * 8) * 0.12f * env,
             Gesture.Tap => _gestureSide * 0.04f * env,
+            // The abdomen wags side to side, like a cat about to pounce.
+            Gesture.Stalk => Mathf.Sin(t * 18) * 0.06f * env,
+            Gesture.Trip => _gestureSide * 0.5f * (t < 0.2f ? t / 0.2f : Mathf.Max(0, 1 - (t - 0.2f) / 0.7f)) + Mathf.Sin(t * 30) * 0.05f * env,
+            Gesture.Yawn => -0.05f * env,
             _ => 0,
         };
     }
@@ -168,6 +191,46 @@ public partial class Spider
                 local = rest + new Vector2(side * 14 * amount, -16 * amount);
                 return amount > 0.001f;
             }
+            case Gesture.Peek:
+            {
+                // Front feet grip the edge (the surface line moves up as the body sinks); the rest hang
+                // below it, out of sight.
+                float line = BodyHeight + GestureBob();
+                local = idx == 0
+                    ? new Vector2(side * 24, line - 1)
+                    : new Vector2(side * RestSpread[idx] * 0.55f, BodyHeight + 6 + idx * 2);
+                return true;
+            }
+            case Gesture.Stalk when idx == 0:
+            {
+                // Front legs raised in front, twitching.
+                var up = new Vector2(side * 26, 12 + Mathf.Sin(t * 16 + side) * 2);
+                local = ArcLerp(leg, rest, up, env);
+                return true;
+            }
+            case Gesture.Yawn when idx == 0:
+            {
+                var up = new Vector2(side * 34, -26);
+                local = ArcLerp(leg, rest, up, Mathf.Sin(Mathf.Clamp(t / _gestureDuration, 0, 1) * Mathf.Pi));
+                return true;
+            }
+            case Gesture.Trip when idx <= 1:
+            {
+                // Flailing for balance.
+                float flail = Mathf.Sin(t * 24 + idx * 2 + (side > 0 ? 1 : 0));
+                local = ArcLerp(leg, rest, new Vector2(side * (34 + flail * 6), -6 - idx * 8 + flail * 8), env);
+                return true;
+            }
+            case Gesture.Hug when idx == 0:
+            {
+                // Arms open wide, then close in front of the body and squeeze.
+                float u = Mathf.Clamp(t / _gestureDuration, 0, 1);
+                float close = Mathf.Clamp((u - 0.25f) / 0.3f, 0, 1);
+                var open = new Vector2(side * 38, -18);
+                var hug = new Vector2(side * (8 + Mathf.Sin(t * 10) * 1.5f), 6);
+                local = ArcLerp(leg, rest, open.Lerp(hug, close), env);
+                return true;
+            }
             case Gesture.Dance when idx <= 1:
             {
                 float beat = Mathf.Sin(t * 8 + (side > 0 ? Mathf.Pi : 0));
@@ -190,6 +253,55 @@ public partial class Spider
             DrawPixelLine(WeavePoint, Spinnerets, silk);
         foreach (var (a, b, life) in _threads)
             DrawPixelLine(a, b, new Color(silk, Mathf.Clamp(life, 0, 1) * 0.8f));
+        DrawZs();
+    }
+
+    // ------------------------------------------------------------------ sleeping Zs
+
+    /// <summary>Little "Z"s floating up from the head while asleep.</summary>
+    readonly List<(Vector2 pos, float age, int size)> _zs = new();
+    float _zTimer;
+
+    // 5x5 pixel "Z".
+    static readonly string[] ZGlyph = { "#####", "...#.", "..#..", ".#...", "#####" };
+
+    void UpdateZs(float dt)
+    {
+        if (Expression == Face.Sleeping && Visible)
+        {
+            _zTimer -= dt;
+            if (_zTimer <= 0)
+            {
+                _zTimer = 1.4f;
+                _zs.Add((BodyCenter + new Vector2(14, -34) * PixelScale, 0, _zs.Count % 2 == 0 ? 1 : 2));
+            }
+        }
+        for (int i = _zs.Count - 1; i >= 0; i--)
+        {
+            var z = _zs[i];
+            z.age += dt;
+            z.pos += new Vector2(Mathf.Sin(z.age * 3) * 8, -22) * dt * PixelScale * 0.5f;
+            if (z.age > 2.6f) _zs.RemoveAt(i); else _zs[i] = z;
+        }
+    }
+
+    void DrawZs()
+    {
+        var ink = new Color("3a2418");
+        foreach (var (pos, age, size) in _zs)
+        {
+            float alpha = Mathf.Clamp(Mathf.Min(age / 0.3f, (2.6f - age) / 0.8f), 0, 1);
+            int px = PixelScale * size;
+            var origin = (pos / PixelScale).Round() * PixelScale;
+            for (int y = 0; y < 5; y++)
+                for (int x = 0; x < 5; x++)
+                    if (ZGlyph[y][x] == '#')
+                    {
+                        // Light fill with a dark outline pixel below-right, readable on any background.
+                        DrawRect(new Rect2(origin + new Vector2(x + 0.5f, y + 0.5f) * px, new Vector2(px, px)), new Color(ink, alpha * 0.8f));
+                        DrawRect(new Rect2(origin + new Vector2(x, y) * px, new Vector2(px, px)), new Color(1, 1, 1, alpha));
+                    }
+        }
     }
 
     void DrawPixelLine(Vector2 a, Vector2 b, Color c) => PixelDraw.Line(this, a, b, c, PixelScale);
