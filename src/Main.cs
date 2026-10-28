@@ -63,7 +63,7 @@ public partial class Main : Node2D
     enum MenuId
     {
         Pomodoro, PomodoroStatus, Upcoming, PcStatus, AppComments, MakeWeb, ClearWebs, AutoWebs, Monitor, Autostart, HideOnFullscreen,
-        OpenConfig, ReloadConfig, DebugRestart, OpenLog, Sleep, Quit,
+        OpenConfig, ReloadConfig, DebugRestart, OpenLog, Quit,
         NewTimer, CancelTimers, NewNote, DaySummary, Friendship, Bugs, Sounds, SmallTalk, Seasonal, Birthday, Hide,
     }
 
@@ -118,7 +118,7 @@ public partial class Main : Node2D
         _brain.Shout += notice =>
         {
             _bubble.Visible = false;
-            _shout.Show(notice, 7);
+            _shout.Show(notice, SpiderBrain.ShoutSeconds);
             _sfx.Play(Sound.Alarm);
         };
         _brain.FlyEaten += () =>
@@ -378,7 +378,6 @@ public partial class Main : Node2D
         menu.AddItem("🔄 Recarregar config", (int)MenuId.ReloadConfig);
         menu.AddItem(DebugMode ? "🐞 Reiniciar em modo normal" : "🐞 Reiniciar em modo debug", (int)MenuId.DebugRestart);
         if (DebugMode) menu.AddItem("📄 Abrir log de debug", (int)MenuId.OpenLog);
-        menu.AddItem("😴 Dormir", (int)MenuId.Sleep);
         menu.AddSeparator();
         menu.AddItem("👋 Sair", (int)MenuId.Quit);
         menu.IdPressed += id =>
@@ -554,7 +553,6 @@ public partial class Main : Node2D
             Check(MenuId.Seasonal, _config.Seasonal);
             Text(MenuId.Hide, _userHidden ? "🙉 Mostrar (Ctrl+Alt+H)" : "🙈 Esconder (Ctrl+Alt+H)");
             Text(MenuId.Pomodoro, _reminders.PomodoroRunning ? "🍅 Parar pomodoro" : "🍅 Iniciar pomodoro");
-            Text(MenuId.Sleep, _brain.Asleep ? "☀ Acordar" : "😴 Dormir");
         }
         foreach (var (sub, current) in _radioMenus)
         {
@@ -685,10 +683,6 @@ public partial class Main : Node2D
                 break;
             case MenuId.DebugRestart: Restart(debug: !DebugMode); break;
             case MenuId.OpenLog: OS.ShellOpen(ProjectSettings.GlobalizePath("user://logs/godot.log")); break;
-            case MenuId.Sleep:
-                if (_brain.Asleep) _brain.WakeUp();
-                else _bubble.Show(Lines.Pick(Lines.SleepHint), 4);
-                break;
             case MenuId.Quit: GetTree().Quit(); break;
         }
     }
@@ -968,12 +962,14 @@ public partial class Main : Node2D
             {
                 _reminders.Snooze(kind);
                 _shout.Visible = false;
+                _brain.DismissShout();
                 _brain.React(Face.Happy, 1.5f);
                 _bubble.Show($"Tá bom, te lembro de novo daqui a {Reminders.SnoozeMinutes} min. ⏰", 4);
             }
             else if (_shout.Visible && _shout.GetGlobalRect().HasPoint(cursor))
             {
                 _shout.Visible = false;
+                _brain.DismissShout();
             }
         }
         else if (!left && _leftWasDown && _pressing)

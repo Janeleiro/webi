@@ -46,11 +46,6 @@ public static class Lines
         "Oi! Senti sua falta.",
     };
 
-    public static readonly string[] SleepHint =
-    {
-        "Eu tiro um cochilo quando você fica um tempinho sem mexer em nada. 😴",
-    };
-
     public static readonly string[] WebStart =
     {
         "Hora de decorar! 🕸️",

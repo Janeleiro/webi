@@ -55,6 +55,9 @@ public sealed class SpiderBrain
 
     /// <summary>Crawling speeds while weaving (screen px/s).</summary>
     const float CornerWeaveSpeed = 320, GiantWeaveSpeed = 1100;
+
+    /// <summary>How long an alert stays up unless clicked away.</summary>
+    public const float ShoutSeconds = 60;
     float _weaveDistance;
     WebTask _task;
     string _taskKey = "";
@@ -449,6 +452,12 @@ public sealed class SpiderBrain
     /// <summary>Queues an alert: Webi goes to the middle of the screen and shouts it.</summary>
     public void Announce(Notice notice) => _notices.Enqueue(notice);
 
+    /// <summary>The alert was clicked away: stop shouting and go back to normal.</summary>
+    public void DismissShout()
+    {
+        if (_stage == Stage.Shouting) _stageTimer = 0;
+    }
+
     /// <summary>Weaves a web over the whole <paramref name="area"/> (a monitor) from its centre.</summary>
     public bool StartGiantWeb(Rect2 area)
     {
@@ -629,7 +638,7 @@ public sealed class SpiderBrain
             return;
         }
         _stage = Stage.Shouting;
-        _stageTimer = 7;
+        _stageTimer = ShoutSeconds;
         Shout?.Invoke(_notice);
     }
 
