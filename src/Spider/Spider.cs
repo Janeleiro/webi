@@ -436,7 +436,8 @@ public partial class Spider : Node2D
         if (State == Mode.Hanging) _ropeMode = RopeMode.Hold;
     }
 
-    public void StartDrag(Vector2 cursor)
+    /// <param name="clinging">Grabbed the cursor on its own: a short thread, hanging just below the pointer.</param>
+    public void StartDrag(Vector2 cursor, bool clinging = false)
     {
         StopWalking();
         CurrentGesture = Gesture.None;
@@ -444,8 +445,9 @@ public partial class Spider : Node2D
         _anchorWeb = null;
         _upsideDown = false;
         _anchor = cursor;
-        // A good length of silk, so it dangles and swings well below the cursor.
-        _ropeLen = 110 + 15 * PixelScale;
+        // A good length of silk, so it dangles and swings well below the cursor. Clinging keeps the body just
+        // clear of the pointer, so clicks still reach the windows under it.
+        _ropeLen = clinging ? 6 * PixelScale : 110 + 15 * PixelScale;
         _prevBody = BodyCenter;
         State = Mode.Dragged;
         Surface = null;

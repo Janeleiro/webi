@@ -101,6 +101,9 @@ um alerta.
   canto fica presa: a Webi vai até a teia e come (se ela não vier em uns 3 min, a mosca se solta e vai embora). Menu "🪰 Moscas para caçar" (config `bugs`).
 - **Caçar o cursor:** com o mouse parado perto dela, às vezes ela faz o bote e pula nele. Se o cursor se mexer
   antes, ela disfarça limpando as patinhas.
+- **Carona no mouse:** com o cursor parado no ar acima dela (de vez em quando, a cada 2–5 min no máximo), ela
+  pula, agarra a setinha e fica pendurada num fio curto, balançando com o mouse. Solta sozinha depois de 8–20 s,
+  ou antes se você chacoalhar o mouse ou clicar nela, e cai com o embalo. Não acontece no modo "não perturbe".
 - **Espiar:** em cima de uma janela, ela se esconde atrás da borda e só os olhos e as patas da frente aparecem.
   Chegar perto com o mouse a faz pular com um "Achou!".
 - **Tropeço** (às vezes, correndo), **bocejo** alguns segundos antes de dormir e **"Z"s** em pixel art subindo

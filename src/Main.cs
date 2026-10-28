@@ -987,6 +987,7 @@ public partial class Main : Node2D
         {
             _dragging = true;
             _brain.WakeUp();
+            _brain.PickedUp();
             _spider.StartDrag(cursor);
             _bubble.Show(Lines.Pick(Lines.Dragged), 1.5f);
         }

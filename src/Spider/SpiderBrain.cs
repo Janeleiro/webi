@@ -89,6 +89,11 @@ public sealed class SpiderBrain
     const int MaxMealFails = 3;
     float _eatTimer;
 
+    // Jumping up to grab the resting cursor, then hanging from it on a short thread for a ride.
+    enum Cling { None, Leap, Holding }
+    Cling _cling;
+    float _clingTimer, _clingCooldown = 90, _shake, _lastDt = 1f / 60f;
+
     float _tripTimer, _peekCooldown = 60, _carriedCooldown;
     bool _tripLine, _peeking, _yawned, _summonPending, _summonSay;
     Vector2 _summonAt;
@@ -145,6 +150,8 @@ public sealed class SpiderBrain
         _cursorHuntCooldown -= dt;
         _peekCooldown -= dt;
         _carriedCooldown -= dt;
+        _clingCooldown -= dt;
+        _lastDt = dt;
 
         // The eyes always follow the mouse (except while asleep, below).
         _spider.LookTarget = cursor;
@@ -196,6 +203,7 @@ public sealed class SpiderBrain
         _waveCooldown -= dt;
 
         if (TickDemo(dt)) return;
+        if (TickCling(dt, cursor, cursorVel)) return;
 
         // ---- startle: a fast swipe right next to it
         if (_spider.State == Mode.Grounded && cursorDist < 110 && cursorVel.Length() > 2600)
@@ -241,6 +249,7 @@ public sealed class SpiderBrain
         }
 
         if (TryStartHunt(cursor, cursorDist)) return;
+        if (TryCling(cursor, cursorDist)) return;
         if (TryPeek(surf)) return;
 
         // Now and then: weave a web in a free corner, or go hang from one already there.
@@ -423,6 +432,12 @@ public sealed class SpiderBrain
     public string Poke(Vector2 cursor)
     {
         WakeUp();
+        if (_cling == Cling.Holding)
+        {
+            LetGo();
+            React(Face.Happy, 1.5f);
+            return Lines.Pick(Lines.CursorClickedOff);
+        }
         double now = Time.GetTicksMsec() / 1000.0;
         _pokes.Enqueue(now);
         while (_pokes.Count > 0 && now - _pokes.Peek() > 4) _pokes.Dequeue();
@@ -487,6 +502,7 @@ public sealed class SpiderBrain
         _stage = Stage.ToCenter;
         _stageTimer = 15;
         _stageAttempts = 0;
+        StopCling();
         _spider.StopWalking();
         if (_spider.CurrentGesture != Gesture.None) _spider.StopGesture();
         if (Asleep) { Asleep = false; _spider.Expression = Face.Normal; }
@@ -1098,6 +1114,7 @@ public sealed class SpiderBrain
         if (_stage != Stage.None) return false;
         EndTask();
         EndHunt();
+        StopCling();
         _summonAt = cursor;
         _summonPending = true;
         if (_spider.State is Mode.Hanging or Mode.Weaving) _spider.Fall();
@@ -1122,4 +1139,89 @@ public sealed class SpiderBrain
         _spider.JumpTo(target);
         return true;
     }
+
+    // ------------------------------------------------------------------ riding the cursor
+
+    /// <summary>Jumps up at a cursor resting in the air above it, to grab it and hang from it.</summary>
+    bool TryCling(Vector2 cursor, float cursorDist)
+    {
+        var surf = _spider.Surface;
+        if (_clingCooldown > 0 || Quiet || surf == null || !surf.IsFloorLike || _cursorStill < 1 || cursorDist is < 120 or > 480)
+            return false;
+        // Only a pointer up above it (jumping down at it would just be a fall), and never on the border between
+        // two monitors, where the body would be split across both screens.
+        if (cursor.Y > _spider.BodyCenter.Y - 80 || _spider.SeamDistance(cursor.X) < _spider.SeamMargin || _rng.Randf() > 0.12f)
+            return false;
+        // JumpTo aims the feet: put the body (half a body above them) through the cursor.
+        _spider.JumpTo(cursor + new Vector2(0, Spider.BodyHeight * _spider.PixelScale * 0.6f));
+        if (!_spider.IsPreparingJump) return false;
+        _clingCooldown = _rng.RandfRange(120, 300);
+        _cling = Cling.Leap;
+        Say?.Invoke(Lines.Pick(Lines.CursorGrab), 2);
+        return true;
+    }
+
+    /// <summary>Runs the leap and the ride. Returns true while it owns the spider.</summary>
+    bool TickCling(float dt, Vector2 cursor, Vector2 cursorVel)
+    {
+        if (_cling == Cling.None) return false;
+        if (_cling == Cling.Leap)
+        {
+            if (_spider.IsPreparingJump || _spider.State == Mode.Airborne)
+            {
+                if (_spider.State == Mode.Airborne && cursor.DistanceTo(_spider.BodyCenter) < 32 * _spider.PixelScale)
+                {
+                    _spider.StartDrag(cursor, clinging: true);
+                    _cling = Cling.Holding;
+                    _clingTimer = _rng.RandfRange(8, 20);
+                    _shake = 0;
+                    React(Face.Happy, 2);
+                    Say?.Invoke(Lines.Pick(Lines.CursorHanging), 2.5f);
+                }
+                return true;
+            }
+            // Came down without reaching it.
+            _cling = Cling.None;
+            React(Face.Sad, 1.5f);
+            Say?.Invoke(Lines.Pick(Lines.CursorGrabMissed), 2.5f);
+            return false;
+        }
+
+        // Picked up by the user or let go some other way.
+        if (_spider.State != Mode.Dragged) { _cling = Cling.None; return false; }
+        _spider.DragTo(cursor);
+        // Shaking the mouse hard for a moment throws it off; ordinary moves just swing it around.
+        _shake = cursorVel.Length() > 3000 ? _shake + dt : Mathf.Max(0, _shake - dt);
+        if (_shake > 0.25f)
+        {
+            LetGo();
+            React(Face.Surprised, 1.5f);
+            Say?.Invoke(Lines.Pick(Lines.CursorShakenOff), 2.5f);
+        }
+        else if ((_clingTimer -= dt) <= 0)
+        {
+            LetGo();
+            React(Face.Happy, 1.5f);
+            Say?.Invoke(Lines.Pick(Lines.CursorLetGo), 2.5f);
+        }
+        return true;
+    }
+
+    /// <summary>Lets go of the cursor, falling with the swing it had.</summary>
+    void LetGo()
+    {
+        _cling = Cling.None;
+        _spider.EndDrag(_lastDt);
+        _decisionTimer = 1.5f;
+    }
+
+    /// <summary>Ends a leap or a ride without a word (an alert, the summon shortcut).</summary>
+    void StopCling()
+    {
+        if (_cling == Cling.Holding) LetGo();
+        _cling = Cling.None;
+    }
+
+    /// <summary>The user grabbed the spider with the mouse: whatever ride it was on is theirs now.</summary>
+    public void PickedUp() => _cling = Cling.None;
 }

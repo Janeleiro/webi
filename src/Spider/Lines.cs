@@ -121,6 +121,18 @@ public static class Lines
 
     public static readonly string[] CursorEscaped = { "Eu nem queria mesmo.", "Hmpf. Fugiu.", "Tava só treinando..." };
 
+    public static readonly string[] CursorGrab = { "Lá vou eu! 🕷️", "Carona de mouse!", "Segura aí, setinha!" };
+
+    public static readonly string[] CursorHanging = { "Wiii, tô pendurada! 🖱️", "Me leva pra passear!", "Daqui de cima a vista é ótima!" };
+
+    public static readonly string[] CursorGrabMissed = { "Errei o pulo... 😅", "Era pra ter agarrado.", "Ninguém viu isso." };
+
+    public static readonly string[] CursorLetGo = { "Cansei, vou descer!", "Valeu pela carona! 👋", "Até a próxima volta!" };
+
+    public static readonly string[] CursorClickedOff = { "Tá bom, desço aqui!", "Fim da linha! 🚏", "Ok, ok, entendi o recado." };
+
+    public static readonly string[] CursorShakenOff = { "Aaaah! Que sacudida! 😵", "Tá bom, tá bom, já desço!", "Ei! Eu tava curtindo!" };
+
     // ------------------------------------------------------------------ little scenes
 
     public static readonly string[] Peekaboo = { "Achou! 👀", "Bu!", "Tava aqui o tempo todo!" };
