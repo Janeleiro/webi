@@ -34,11 +34,14 @@ public sealed class QuickTimer
     public string Text { get; set; } = "";
 }
 
-/// <summary>A sticky note Webi keeps hanging on a thread.</summary>
+/// <summary>A sticky note Webi keeps hanging on a thread, in the order they are stacked (last on top).</summary>
 public sealed class StickyNote
 {
     public string Text { get; set; } = "";
     public DateTime Created { get; set; }
+    /// <summary>Where it hangs (top center, world coordinates); null until it is first shown.</summary>
+    public float? X { get; set; }
+    public float? Y { get; set; }
 }
 
 /// <summary>

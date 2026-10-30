@@ -137,8 +137,9 @@ Carnaval e Páscoa são calculados. Tudo em `src/Assistant/Seasons.cs`.
   ligar" são durações; "14:30 dentista", "às 9", "14h" são horários (horário que já passou vale para amanhã).
   "Nh" sem "às" é horário a partir de 5h, então "1h30" é duração. Ela grita na hora, como os lembretes. Os
   timers sobrevivem a reiniciar o app; "⏰ Próximos lembretes" os lista e "🗑 Cancelar timers" apaga todos.
-- **📝 Novo post-it...:** até 4 notas penduradas em fios de seda à direita do monitor principal. Clicar numa
-  nota a tira.
+- **📝 Novo post-it...:** até 4 notas penduradas em fios de seda, que aparecem à direita do monitor principal.
+  Dá pra arrastar cada nota pra qualquer lugar (o fio vai junto e a posição é lembrada); só a lixeira no canto
+  superior direito da nota a tira.
 - **📊 Resumo do dia:** tempo de PC, apps mais usados, pomodoros, copos d'água, moscas e cutucadas.
 
 ## Atalhos e sons

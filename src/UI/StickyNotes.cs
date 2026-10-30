@@ -6,90 +6,169 @@ using Webi.World;
 namespace Webi.UI;
 
 /// <summary>
-/// Sticky notes hanging on silk threads from the top of the screen, on the right side of the primary monitor,
-/// swaying a little. World coordinates (drawn on every monitor's window). Clicking a note takes it down.
+/// Sticky notes hanging on silk threads from the top of the screen, swaying a little. New notes take a free spot
+/// on the right side of the primary monitor; they can be dragged anywhere (the thread follows) and only the trash
+/// can in the corner takes them down. World coordinates (drawn on every monitor's window).
 /// </summary>
 public partial class StickyNotes : Node2D
 {
-    static readonly Color Paper = new("ffe98a");
-    static readonly Color PaperShade = new("f2cf55");
-    static readonly Color Ink = PixelTheme.Ink;
-    static readonly Color Silk = new(0.93f, 0.92f, 0.88f, 0.95f);
+    internal static readonly Color Silk = new(0.93f, 0.92f, 0.88f, 0.95f);
 
-    const float Width = 150;
+    internal const float Width = 150;
     public const int Max = 4;
+    /// <summary>Shortest thread a note can hang from when dragged up.</summary>
+    const float MinThread = 16;
 
-    sealed class Card
-    {
-        public Label Label = null!;
-        public Vector2 Anchor, Size;
-        public float Phase, Age;
-        public Rect2 Rect;
-    }
-
-    readonly List<Card> _cards = new();
+    readonly List<StickyCard> _cards = new();
     readonly RandomNumberGenerator _rng = new();
     float _time;
+    StickyCard? _held;
+    Vector2 _grab, _dragTo;
 
-    /// <summary>Work area of the primary monitor (set by Main).</summary>
+    /// <summary>The notes shown (the saved list: positions and order are written back into it).</summary>
+    public List<StickyNote> Notes = new();
+    /// <summary>Work area of the primary monitor, where new notes go (set by Main).</summary>
     public Rect2 Bounds;
+    /// <summary>Work area of the monitor at a point (set by Main).</summary>
+    public Func<Vector2, Rect2> WorkAreaAt = null!;
+    public Vector2 Cursor;
     public int PixelScale = 2;
 
-    /// <summary>Replaces the notes shown with <paramref name="texts"/>.</summary>
-    public void SetNotes(IReadOnlyList<string> texts)
+    /// <summary>A note was moved: the saved state needs writing.</summary>
+    public event Action? Moved;
+
+    public bool Dragging => _held != null;
+
+    /// <summary>Matches the cards to <see cref="Notes"/> after notes were added or removed.</summary>
+    public void Refresh()
     {
-        foreach (var c in _cards) c.Label.QueueFree();
-        _cards.Clear();
-        for (int i = 0; i < texts.Count && i < Max; i++)
-        {
-            var label = new Label
+        for (int i = _cards.Count - 1; i >= 0; i--)
+            if (!Notes.Contains(_cards[i].Note))
             {
-                Text = texts[i],
-                AutowrapMode = TextServer.AutowrapMode.WordSmart,
-                CustomMinimumSize = new Vector2(Width - 24, 0),
-                MouseFilter = Control.MouseFilterEnum.Ignore,
-            };
-            label.AddThemeFontOverride("font", PixelTheme.RoundFont(700));
-            label.AddThemeFontSizeOverride("font_size", 15);
-            label.AddThemeColorOverride("font_color", Ink);
-            AddChild(label);
-            _cards.Add(new Card { Label = label, Phase = _rng.RandfRange(0, Mathf.Tau), Age = 0 });
+                if (_held == _cards[i]) _held = null;
+                _cards[i].QueueFree();
+                _cards.RemoveAt(i);
+            }
+        foreach (var note in Notes)
+        {
+            if (_cards.Exists(c => c.Note == note)) continue;
+            var card = new StickyCard(note) { Phase = _rng.RandfRange(0, Mathf.Tau) };
+            AddChild(card);
+            _cards.Add(card);
         }
+        _cards.Sort((a, b) => Notes.IndexOf(a.Note).CompareTo(Notes.IndexOf(b.Note)));
+        for (int i = 0; i < _cards.Count; i++) MoveChild(_cards[i], i);
         // _Process stops redrawing once there are no cards, so the last frame would stay on screen.
         QueueRedraw();
     }
 
-    /// <summary>Index of the note under the point, or -1.</summary>
-    public int NoteAt(Vector2 p)
+    /// <summary>The topmost note under the point.</summary>
+    public StickyNote? NoteAt(Vector2 p) => CardAt(p)?.Note;
+
+    /// <summary>The note whose trash can is under the point.</summary>
+    public StickyNote? TrashAt(Vector2 p) => CardAt(p) is { } c && c.TrashRect.HasPoint(p) ? c.Note : null;
+
+    StickyCard? CardAt(Vector2 p)
     {
-        for (int i = 0; i < _cards.Count; i++)
-            if (_cards[i].Rect.HasPoint(p)) return i;
-        return -1;
+        for (int i = _cards.Count - 1; i >= 0; i--)
+            if (_cards[i].Rect.HasPoint(p)) return _cards[i];
+        return null;
     }
+
+    /// <summary>Picks up the note under the cursor and brings it to the front.</summary>
+    public void StartDrag(Vector2 cursor)
+    {
+        if (CardAt(cursor) is not { } card) return;
+        _held = card;
+        // Grabbed where it is drawn (it may still be lowering or mid-sway), so it doesn't jump away from the cursor.
+        card.Top = card.Rect.Position + new Vector2(card.Size.X / 2, 0);
+        _grab = cursor - card.Top;
+        _dragTo = card.Top;
+        card.Age = 1; // done lowering
+        Notes.Remove(card.Note);
+        Notes.Add(card.Note);
+        Refresh();
+    }
+
+    public void DragTo(Vector2 cursor) => _dragTo = cursor - _grab;
+
+    public void EndDrag()
+    {
+        if (_held == null) return;
+        _held.Note.X = _held.Top.X;
+        _held.Note.Y = _held.Top.Y;
+        _held = null;
+        Moved?.Invoke();
+    }
+
+    /// <summary>Keeps a note (by its top center) inside a monitor's work area, below the top edge.</summary>
+    static Vector2 Clamp(Vector2 top, Vector2 size, Rect2 area) => new(
+            Mathf.Clamp(top.X, area.Position.X + size.X / 2, area.End.X - size.X / 2),
+            Mathf.Clamp(top.Y, area.Position.Y + MinThread, Mathf.Max(area.Position.Y + MinThread, area.End.Y - size.Y)));
+
+    /// <summary>
+    /// First free spot for a new note: side by side from the right of the primary monitor, on threads of
+    /// different lengths, skipping spots another note is already on.
+    /// </summary>
+    Vector2 FreeSpot(StickyCard card)
+    {
+        for (int slot = 0; ; slot++)
+        {
+            var top = new Vector2(Bounds.End.X - 40 - Width / 2 - (slot % Max) * (Width + 18),
+                Bounds.Position.Y + Bounds.Size.Y * (0.28f + (slot % 2) * 0.06f) + slot / Max * 40);
+            var rect = new Rect2(top - new Vector2(Width / 2, 0), new Vector2(Width, MinHeight(card)));
+            if (slot >= Max * 4 || !_cards.Exists(c => c != card && c.Note.X is float x && c.Note.Y is float y
+                    && new Rect2(x - Width / 2, y, Width, MinHeight(c)).Intersects(rect))) return top;
+        }
+    }
+
+    // A card not measured yet still takes at least the smallest note's height.
+    static float MinHeight(StickyCard c) => Mathf.Max(StickyCard.MinHeight, c.Size.Y);
 
     public override void _Process(double delta)
     {
         if (_cards.Count == 0) return;
         float dt = (float)delta;
         _time += dt;
-        for (int i = 0; i < _cards.Count; i++)
+        foreach (var c in _cards)
         {
-            var c = _cards[i];
             c.Age += dt;
-            // Measured every frame: a wrapped label only knows its line count once it has its width, and the
-            // monitors can change. Side by side from the right, on threads of different lengths.
-            c.Size = new Vector2(Width, Mathf.Max(70, c.Label.GetCombinedMinimumSize().Y + 30));
-            c.Anchor = new Vector2(Bounds.End.X - 40 - Width / 2 - i * (Width + 18), Bounds.Position.Y);
-            float drop = Bounds.Size.Y * (0.28f + (i % 2) * 0.06f);
+            // Measured every frame: a wrapped label only knows its line count once it has its width.
+            c.Size = c.Measure();
+            Rect2 area;
+            if (c == _held)
+            {
+                // Kept on the monitor the cursor is on (the note's own top can fall in a gap between monitors).
+                area = WorkAreaAt(Cursor);
+                c.Top = Clamp(_dragTo, c.Size, area);
+                c.Swing = 0;
+            }
+            else
+            {
+                if (c.Note.X == null || c.Note.Y == null)
+                {
+                    var spot = FreeSpot(c);
+                    (c.Note.X, c.Note.Y) = (spot.X, spot.Y);
+                    Moved?.Invoke();
+                }
+                // Clamped again in case the monitors changed since it was put there.
+                var saved = new Vector2(c.Note.X.Value, c.Note.Y.Value);
+                area = WorkAreaAt(saved);
+                c.Top = Clamp(saved, c.Size, area);
+                // Starts swaying again little by little after being let go, instead of jumping sideways.
+                c.Swing = Mathf.Min(1, c.Swing + dt / 1.5f);
+            }
+            c.Anchor = new Vector2(c.Top.X, area.Position.Y);
             // Lowered down on the thread when it appears.
-            float lowered = Mathf.Min(1, c.Age / 0.8f);
-            float sway = Mathf.Sin(_time * 1.3f + c.Phase) * 6;
-            var top = c.Anchor + new Vector2(sway, drop * Ease(lowered));
-            var pos = (top - new Vector2(c.Size.X / 2, 0)).Round();
-            c.Rect = new Rect2(pos, c.Size);
-            c.Label.Position = pos + new Vector2(12, 18);
-            c.Label.Size = new Vector2(c.Size.X - 24, c.Size.Y - 26);
+            float lowered = Ease(Mathf.Min(1, c.Age / 0.8f));
+            float sway = Mathf.Sin(_time * 1.3f + c.Phase) * 6 * c.Swing;
+            var top = c.Anchor.Lerp(c.Top, lowered) + new Vector2(sway, 0);
+            c.Rect = new Rect2((top - new Vector2(c.Size.X / 2, 0)).Round(), c.Size);
+            c.Place();
         }
+        // After every card has moved, so overlapping notes agree on which one is on top.
+        var hovered = CardAt(Cursor);
+        foreach (var c in _cards) c.Hover = c == hovered && c.TrashRect.HasPoint(Cursor);
         QueueRedraw();
     }
 
@@ -97,22 +176,105 @@ public partial class StickyNotes : Node2D
 
     public override void _Draw()
     {
+        // Threads behind every note.
         int u = PixelTheme.U;
         foreach (var c in _cards)
+            PixelDraw.Line(this, c.Anchor, new Vector2(c.Rect.GetCenter().X, c.Rect.Position.Y + u * 2), Silk, PixelScale);
+    }
+}
+
+/// <summary>One sticky note: paper, text and the trash can, drawn in its own node so overlapping notes stack.</summary>
+public partial class StickyCard : Node2D
+{
+    static readonly Color Paper = new("ffe98a");
+    static readonly Color PaperShade = new("f2cf55");
+    static readonly Color Ink = PixelTheme.Ink;
+    static readonly Color TrashHover = new("e86a5c");
+
+    /// <summary>Room above the text for the trash can.</summary>
+    const float TopBand = 26;
+    /// <summary>Trash can, in 2-pixel dots.</summary>
+    static readonly string[] Trash =
+    {
+        "..###..",
+        "#######",
+        ".......",
+        ".#####.",
+        ".#.#.#.",
+        ".#.#.#.",
+        ".#.#.#.",
+        ".#####.",
+    };
+    const int Dot = 2;
+
+    public readonly StickyNote Note;
+    readonly Label _label;
+    public float Phase, Age;
+    /// <summary>How much it sways (0 while held, back to 1 after being let go).</summary>
+    public float Swing = 1;
+    /// <summary>Where it hangs (top center) and where its thread is tied.</summary>
+    public Vector2 Top, Anchor, Size;
+    public Rect2 Rect;
+    public bool Hover;
+
+    public StickyCard(StickyNote note)
+    {
+        Note = note;
+        _label = new Label
         {
-            var r = c.Rect;
-            var pin = new Vector2(r.GetCenter().X, r.Position.Y + u * 2);
-            PixelDraw.Line(this, c.Anchor, pin, Silk, PixelScale);
-            // Shadow, outline, paper, a shaded band at the bottom and a folded corner.
-            DrawRect(new Rect2(r.Position + new Vector2(u * 2, u * 2), r.Size), PixelTheme.Shadow);
-            DrawRect(r, Ink);
-            var inner = r.Grow(-u);
-            DrawRect(inner, Paper);
-            DrawRect(new Rect2(inner.Position.X, inner.End.Y - u * 2, inner.Size.X, u * 2), PaperShade);
-            for (int k = 0; k < 4; k++)
-                DrawRect(new Rect2(inner.End.X - (4 - k) * u, inner.End.Y - (k + 1) * u, (4 - k) * u, u), k == 0 ? Ink : PaperShade);
-            // A blob of silk holding it.
-            DrawRect(new Rect2(pin - new Vector2(u, u), new Vector2(u * 2, u * 2)), Silk);
-        }
+            Text = note.Text,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            CustomMinimumSize = new Vector2(StickyNotes.Width - 24, 0),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        _label.AddThemeFontOverride("font", PixelTheme.RoundFont(700));
+        _label.AddThemeFontSizeOverride("font_size", 15);
+        _label.AddThemeColorOverride("font_color", Ink);
+        AddChild(_label);
+    }
+
+    // Godot needs a parameterless constructor to recreate the node (hot reload); never used otherwise.
+    public StickyCard() : this(new StickyNote()) { }
+
+    public const float MinHeight = 80;
+
+    public Vector2 Measure() => new(StickyNotes.Width, Mathf.Max(MinHeight, _label.GetCombinedMinimumSize().Y + TopBand + 18));
+
+    /// <summary>The trash can in the top right corner (world coordinates), a little bigger than drawn to be easy to hit.</summary>
+    public Rect2 TrashRect => new Rect2(Rect.End.X - PixelTheme.U * 2 - Trash[0].Length * Dot, Rect.Position.Y + PixelTheme.U * 2,
+        Trash[0].Length * Dot, Trash.Length * Dot).Grow(4);
+
+    public void Place()
+    {
+        Position = Rect.Position;
+        _label.Position = new Vector2(12, TopBand);
+        _label.Size = new Vector2(Size.X - 24, Size.Y - TopBand - 10);
+        QueueRedraw();
+    }
+
+    public override void _Draw()
+    {
+        int u = PixelTheme.U;
+        var r = new Rect2(Vector2.Zero, Size);
+        var pin = new Vector2(r.GetCenter().X, u * 2);
+        // Shadow, outline, paper, a shaded band at the bottom and a folded corner.
+        DrawRect(new Rect2(new Vector2(u * 2, u * 2), r.Size), PixelTheme.Shadow);
+        DrawRect(r, Ink);
+        var inner = r.Grow(-u);
+        DrawRect(inner, Paper);
+        DrawRect(new Rect2(inner.Position.X, inner.End.Y - u * 2, inner.Size.X, u * 2), PaperShade);
+        for (int k = 0; k < 4; k++)
+            DrawRect(new Rect2(inner.End.X - (4 - k) * u, inner.End.Y - (k + 1) * u, (4 - k) * u, u), k == 0 ? Ink : PaperShade);
+        // A blob of silk holding it.
+        DrawRect(new Rect2(pin - new Vector2(u, u), new Vector2(u * 2, u * 2)), StickyNotes.Silk);
+
+        var trash = TrashRect;
+        trash.Position -= Rect.Position;
+        if (Hover) PixelTheme.RoundRect(this, trash, 1, TrashHover);
+        var origin = trash.Position + new Vector2(4, 4);
+        for (int y = 0; y < Trash.Length; y++)
+            for (int x = 0; x < Trash[y].Length; x++)
+                if (Trash[y][x] == '#')
+                    DrawRect(new Rect2(origin + new Vector2(x * Dot, y * Dot), new Vector2(Dot, Dot)), Ink);
     }
 }

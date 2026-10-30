@@ -112,7 +112,7 @@ public partial class Main : Node2D
         _brain = new SpiderBrain(_spider, _map)
         {
             Webs = _webs, AutoWebs = _config.AutoWebs, MaxWebs = _config.MaxWebs, Bugs = _bugs,
-            WorkAreaAt = p => { var m = _overlay.MonitorAt(p); return new Rect2(m.WorkArea.Position, m.WorkArea.Size); },
+            WorkAreaAt = WorkAreaAt,
             FriendLevel = () => _friendship.Level,
         };
         _brain.Shout += notice =>
@@ -217,6 +217,13 @@ public partial class Main : Node2D
 
     Rect2 PrimaryWork() => new(_overlay.Primary.WorkArea.Position, _overlay.Primary.WorkArea.Size);
 
+    /// <summary>Work area of the monitor containing the point, or the nearest one.</summary>
+    Rect2 WorkAreaAt(Vector2 p)
+    {
+        var m = _overlay.MonitorAt(p);
+        return new Rect2(m.WorkArea.Position, m.WorkArea.Size);
+    }
+
     /// <summary>
     /// Rescans the windows and rebuilds the walkable world from the monitors not taken by a fullscreen app;
     /// if the spider is on a taken one it moves to a free monitor.
@@ -309,9 +316,14 @@ public partial class Main : Node2D
         AddChild(_bubble);
         _shout = new ShoutBubble { Bounds = PrimaryWork(), ZIndex = 11 };
         AddChild(_shout);
-        _notes = new StickyNotes { Bounds = PrimaryWork(), PixelScale = _config.Scale, ZIndex = 9 };
+        _notes = new StickyNotes
+        {
+            Notes = _state.Notes, Bounds = PrimaryWork(), PixelScale = _config.Scale, ZIndex = 9,
+            WorkAreaAt = WorkAreaAt,
+        };
         AddChild(_notes);
-        _notes.SetNotes(_state.Notes.Select(n => n.Text).ToList());
+        _notes.Moved += () => _state.Dirty = true;
+        _notes.Refresh();
         _bubble.Popped += () => _sfx.Play(Sound.Pop);
 
         _sfx = new Sfx { Enabled = _config.Sounds };
@@ -752,16 +764,16 @@ public partial class Main : Node2D
     {
         if (_state.Notes.Count >= StickyNotes.Max)
         {
-            _bubble.Show($"Já tem {StickyNotes.Max} post-its pendurados! Clica num que já foi resolvido pra tirar. 📝", 5);
+            _bubble.Show($"Já tem {StickyNotes.Max} post-its pendurados! Clica na lixeira de um que já foi resolvido pra tirar. 📝", 5);
             return;
         }
         _input.Ask("O que eu anoto no post-it?", "comprar café", "", text =>
         {
             _state.Notes.Add(new StickyNote { Text = text, Created = System.DateTime.Now });
             _state.Dirty = true;
-            _notes.SetNotes(_state.Notes.Select(n => n.Text).ToList());
+            _notes.Refresh();
             _brain.React(Face.Happy, 1.5f);
-            _bubble.Show("Anotado! Pendurei ali do lado. Clica no post-it quando resolver. 📝", 5);
+            _bubble.Show("Anotado! Pendurei ali do lado. Arrasta pra onde quiser e clica na lixeira quando resolver. 📝", 5);
         }, 120);
     }
 
@@ -875,15 +887,16 @@ public partial class Main : Node2D
         _bubble.Bounds = new Rect2(monitor.WorkArea.Position, monitor.WorkArea.Size);
         _shout.Bounds = _bubble.Bounds;
         _notes.Bounds = PrimaryWork();
+        _notes.Cursor = cursor;
 
         TrackMouse(dt, cursor);
 
         // Clicks pass through the overlay except over the spider and open UI.
-        bool interactive = _pressing || _dragging
+        bool interactive = _pressing || _dragging || _notes.Dragging
             || (!_hidden && _spider.HitRect().HasPoint(cursor))
             || (_bubble.Visible && _bubble.GetGlobalRect().HasPoint(cursor))
             || (_shout.Visible && _shout.GetGlobalRect().HasPoint(cursor))
-            || _notes.NoteAt(cursor) >= 0;
+            || _notes.NoteAt(cursor) != null;
         _overlay.UpdateClickThrough(cursor, interactive);
     }
 
@@ -950,13 +963,17 @@ public partial class Main : Node2D
             {
                 _bubble.Visible = false;
             }
-            else if (_notes.NoteAt(cursor) is var note and >= 0 && note < _state.Notes.Count)
+            else if (_notes.TrashAt(cursor) is { } done)
             {
-                _state.Notes.RemoveAt(note);
+                _state.Notes.Remove(done);
                 _state.Dirty = true;
-                _notes.SetNotes(_state.Notes.Select(n => n.Text).ToList());
+                _notes.Refresh();
                 _brain.React(Face.Happy, 1.5f);
                 _bubble.Show(Lines.Pick(Lines.NoteDone), 3);
+            }
+            else if (_notes.NoteAt(cursor) != null)
+            {
+                _notes.StartDrag(cursor);
             }
             else if (_shout.OverSnooze(cursor) && _shout.Snoozable is { } kind)
             {
@@ -971,6 +988,14 @@ public partial class Main : Node2D
                 _shout.Visible = false;
                 _brain.DismissShout();
             }
+        }
+        else if (left && _notes.Dragging)
+        {
+            _notes.DragTo(cursor);
+        }
+        else if (!left && _notes.Dragging)
+        {
+            _notes.EndDrag();
         }
         else if (!left && _leftWasDown && _pressing)
         {
@@ -995,7 +1020,7 @@ public partial class Main : Node2D
         if (right && !_rightWasDown && overSpider) OpenMenu(cursor);
 
         // Dragging the mouse through a corner web (not while holding the spider) sweeps it away.
-        if (left && _leftWasDown && !_pressing && cursor != _lastCursor && _webs.SweptBy(_lastCursor, cursor) is { } swept)
+        if (left && _leftWasDown && !_pressing && !_notes.Dragging && cursor != _lastCursor && _webs.SweptBy(_lastCursor, cursor) is { } swept)
         {
             bool wasHanging = _spider.HangingWeb == swept;
             _webs.Tear(swept);
@@ -1044,7 +1069,8 @@ public partial class Main : Node2D
             }
             prev = p;
         }
-        if (length > 2400 && reversals >= 4 && _webs.Giant is { } giant)
+        // Not while carrying a post-it around: that's moving it, not shaking.
+        if (length > 2400 && reversals >= 4 && !_notes.Dragging && _webs.Giant is { } giant)
         {
             _webs.Tear(giant);
             _sfx.Play(Sound.Rip);
