@@ -8,14 +8,16 @@ namespace Webi.UI;
 /// <summary>
 /// Sticky notes hanging on silk threads from the top of the screen, swaying a little. New notes take a free spot
 /// on the right side of the primary monitor; they can be dragged anywhere (the thread follows) and only the trash
-/// can in the corner takes them down. World coordinates (drawn on every monitor's window).
+/// can in the corner takes them down; the pencil in the other corner edits the text. World coordinates (drawn on every monitor's window).
 /// </summary>
 public partial class StickyNotes : Node2D
 {
     internal static readonly Color Silk = new(0.93f, 0.92f, 0.88f, 0.95f);
 
     internal const float Width = 150;
-    public const int Max = 4;
+    public const int Max = 12;
+    /// <summary>New notes are laid out in rows of this many, from the right of the primary monitor.</summary>
+    const int Columns = 4;
     /// <summary>Shortest thread a note can hang from when dragged up.</summary>
     const float MinThread = 16;
 
@@ -51,7 +53,11 @@ public partial class StickyNotes : Node2D
             }
         foreach (var note in Notes)
         {
-            if (_cards.Exists(c => c.Note == note)) continue;
+            if (_cards.Find(c => c.Note == note) is { } shown)
+            {
+                shown.SyncText();
+                continue;
+            }
             var card = new StickyCard(note) { Phase = _rng.RandfRange(0, Mathf.Tau) };
             AddChild(card);
             _cards.Add(card);
@@ -67,6 +73,9 @@ public partial class StickyNotes : Node2D
 
     /// <summary>The note whose trash can is under the point.</summary>
     public StickyNote? TrashAt(Vector2 p) => CardAt(p) is { } c && c.TrashRect.HasPoint(p) ? c.Note : null;
+
+    /// <summary>The note whose pencil is under the point.</summary>
+    public StickyNote? PencilAt(Vector2 p) => CardAt(p) is { } c && c.PencilRect.HasPoint(p) ? c.Note : null;
 
     StickyCard? CardAt(Vector2 p)
     {
@@ -114,10 +123,13 @@ public partial class StickyNotes : Node2D
     {
         for (int slot = 0; ; slot++)
         {
-            var top = new Vector2(Bounds.End.X - 40 - Width / 2 - (slot % Max) * (Width + 18),
-                Bounds.Position.Y + Bounds.Size.Y * (0.28f + (slot % 2) * 0.06f) + slot / Max * 40);
+            var top = new Vector2(Bounds.End.X - 40 - Width / 2 - (slot % Columns) * (Width + 18),
+                Bounds.Position.Y + Bounds.Size.Y * (0.18f + (slot % 2) * 0.04f) + slot / Columns * (StickyCard.MinHeight + 30));
             var rect = new Rect2(top - new Vector2(Width / 2, 0), new Vector2(Width, MinHeight(card)));
-            if (slot >= Max * 4 || !_cards.Exists(c => c != card && c.Note.X is float x && c.Note.Y is float y
+            // Past a few rows (or off the bottom) it gives up and stacks on the first spot.
+            if (slot >= Columns * 5 || top.Y + MinHeight(card) > Bounds.End.Y)
+                return new Vector2(Bounds.End.X - 40 - Width / 2, Bounds.Position.Y + Bounds.Size.Y * 0.18f);
+            if (!_cards.Exists(c => c != card && c.Note.X is float x && c.Note.Y is float y
                     && new Rect2(x - Width / 2, y, Width, MinHeight(c)).Intersects(rect))) return top;
         }
     }
@@ -168,7 +180,11 @@ public partial class StickyNotes : Node2D
         }
         // After every card has moved, so overlapping notes agree on which one is on top.
         var hovered = CardAt(Cursor);
-        foreach (var c in _cards) c.Hover = c == hovered && c.TrashRect.HasPoint(Cursor);
+        foreach (var c in _cards)
+        {
+            c.Hover = c == hovered && c.TrashRect.HasPoint(Cursor);
+            c.PencilHover = c == hovered && c.PencilRect.HasPoint(Cursor);
+        }
         QueueRedraw();
     }
 
@@ -190,8 +206,9 @@ public partial class StickyCard : Node2D
     static readonly Color PaperShade = new("f2cf55");
     static readonly Color Ink = PixelTheme.Ink;
     static readonly Color TrashHover = new("e86a5c");
+    static readonly Color PencilHoverColor = new("7cc4e8");
 
-    /// <summary>Room above the text for the trash can.</summary>
+    /// <summary>Room above the text for the trash can and the pencil.</summary>
     const float TopBand = 26;
     /// <summary>Trash can, in 2-pixel dots.</summary>
     static readonly string[] Trash =
@@ -205,6 +222,17 @@ public partial class StickyCard : Node2D
         ".#.#.#.",
         ".#####.",
     };
+    /// <summary>Pencil (tip at the bottom left), in 2-pixel dots.</summary>
+    static readonly string[] Pencil =
+    {
+        ".....##",
+        "....#.#",
+        "...###.",
+        "..###..",
+        ".###...",
+        ".##....",
+        "#......",
+    };
     const int Dot = 2;
 
     public readonly StickyNote Note;
@@ -215,7 +243,7 @@ public partial class StickyCard : Node2D
     /// <summary>Where it hangs (top center) and where its thread is tied.</summary>
     public Vector2 Top, Anchor, Size;
     public Rect2 Rect;
-    public bool Hover;
+    public bool Hover, PencilHover;
 
     public StickyCard(StickyNote note)
     {
@@ -233,6 +261,12 @@ public partial class StickyCard : Node2D
         AddChild(_label);
     }
 
+    /// <summary>Shows the note's text again after it was edited.</summary>
+    public void SyncText()
+    {
+        if (_label.Text != Note.Text) _label.Text = Note.Text;
+    }
+
     // Godot needs a parameterless constructor to recreate the node (hot reload); never used otherwise.
     public StickyCard() : this(new StickyNote()) { }
 
@@ -243,6 +277,10 @@ public partial class StickyCard : Node2D
     /// <summary>The trash can in the top right corner (world coordinates), a little bigger than drawn to be easy to hit.</summary>
     public Rect2 TrashRect => new Rect2(Rect.End.X - PixelTheme.U * 2 - Trash[0].Length * Dot, Rect.Position.Y + PixelTheme.U * 2,
         Trash[0].Length * Dot, Trash.Length * Dot).Grow(4);
+
+    /// <summary>The pencil in the top left corner (world coordinates), grown like the trash can.</summary>
+    public Rect2 PencilRect => new Rect2(Rect.Position.X + PixelTheme.U * 2, Rect.Position.Y + PixelTheme.U * 2,
+        Pencil[0].Length * Dot, Pencil.Length * Dot).Grow(4);
 
     public void Place()
     {
@@ -268,13 +306,18 @@ public partial class StickyCard : Node2D
         // A blob of silk holding it.
         DrawRect(new Rect2(pin - new Vector2(u, u), new Vector2(u * 2, u * 2)), StickyNotes.Silk);
 
-        var trash = TrashRect;
-        trash.Position -= Rect.Position;
-        if (Hover) PixelTheme.RoundRect(this, trash, 1, TrashHover);
-        var origin = trash.Position + new Vector2(4, 4);
-        for (int y = 0; y < Trash.Length; y++)
-            for (int x = 0; x < Trash[y].Length; x++)
-                if (Trash[y][x] == '#')
+        DrawIcon(Trash, TrashRect, Hover, TrashHover);
+        DrawIcon(Pencil, PencilRect, PencilHover, PencilHoverColor);
+    }
+
+    void DrawIcon(string[] dots, Rect2 rect, bool hover, Color hoverColor)
+    {
+        rect.Position -= Rect.Position;
+        if (hover) PixelTheme.RoundRect(this, rect, 1, hoverColor);
+        var origin = rect.Position + new Vector2(4, 4);
+        for (int y = 0; y < dots.Length; y++)
+            for (int x = 0; x < dots[y].Length; x++)
+                if (dots[y][x] == '#')
                     DrawRect(new Rect2(origin + new Vector2(x * Dot, y * Dot), new Vector2(Dot, Dot)), Ink);
     }
 }

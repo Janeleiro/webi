@@ -777,6 +777,20 @@ public partial class Main : Node2D
         }, 120);
     }
 
+    void EditNote(StickyNote note)
+    {
+        _input.Ask("Editar o post-it:", "comprar café", note.Text, text =>
+        {
+            // It may have gone to the trash while the dialog was open.
+            if (!_state.Notes.Contains(note) || text == note.Text) return;
+            note.Text = text;
+            _state.Dirty = true;
+            _notes.Refresh();
+            _brain.React(Face.Happy, 1.5f);
+            _bubble.Show("Corrigido! ✏️", 3);
+        }, 120);
+    }
+
     void AskBirthday()
     {
         _input.Ask("Qual o dia do seu aniversário? (dia/mês, ex.: 27/10). Deixe vazio e cancele pra não mudar.", "dd/mm", _config.Birthday, text =>
@@ -970,6 +984,10 @@ public partial class Main : Node2D
                 _notes.Refresh();
                 _brain.React(Face.Happy, 1.5f);
                 _bubble.Show(Lines.Pick(Lines.NoteDone), 3);
+            }
+            else if (_notes.PencilAt(cursor) is { } editing)
+            {
+                EditNote(editing);
             }
             else if (_notes.NoteAt(cursor) != null)
             {
