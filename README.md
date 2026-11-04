@@ -6,7 +6,7 @@ companhia com reações pré-programadas, lembretes, pomodoro e monitor do siste
 
 ## Baixar e usar
 
-Baixe o `Webi.exe` da versão mais recente na página de **Releases** do GitHub e abra. É um arquivo único
+Baixe o `Webi.exe` da [versão mais recente](https://github.com/Janeleiro/webi/releases/latest) e abra. É um arquivo único
 que já traz tudo dentro: não precisa instalar nada, nem Godot, nem .NET. Funciona no Windows 10/11 64 bits.
 
 - O exe não é assinado digitalmente, então o Windows pode mostrar "O Windows protegeu o computador".
