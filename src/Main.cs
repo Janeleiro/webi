@@ -96,6 +96,7 @@ public partial class Main : Node2D
         _state = AppState.Load(AppState.FilePath);
         _friendship = new Friendship(_state);
         _overlay.Setup(this);
+        _state.MoveNotesToDesktop(_overlay.WorldOrigin.X, _overlay.WorldOrigin.Y);
         _scanner = new DesktopScanner(_overlay);
 
         // Webs first so they are drawn under the spider.
@@ -319,7 +320,7 @@ public partial class Main : Node2D
         _notes = new StickyNotes
         {
             Notes = _state.Notes, Bounds = PrimaryWork(), PixelScale = _config.Scale, ZIndex = 9,
-            WorkAreaAt = WorkAreaAt,
+            WorkAreaAt = WorkAreaAt, Origin = _overlay.WorldOrigin,
         };
         AddChild(_notes);
         _notes.Moved += () => _state.Dirty = true;
@@ -548,6 +549,8 @@ public partial class Main : Node2D
     /// <summary>Makes the next text dialog open centered on the monitor of the point (Godot centers it on its owner window).</summary>
     void InputOn(Vector2 at)
     {
+        // Already open for another question: it stays where it is (Ask just brings it to the front).
+        if (_input.Visible) return;
         var host = _overlay.WindowAt(at);
         if (_input.GetParent() != host) _input.Reparent(host, keepGlobalTransform: false);
     }
@@ -918,6 +921,7 @@ public partial class Main : Node2D
         _bubble.Bounds = new Rect2(monitor.WorkArea.Position, monitor.WorkArea.Size);
         _shout.Bounds = _bubble.Bounds;
         _notes.Bounds = PrimaryWork();
+        _notes.Origin = _overlay.WorldOrigin;
         _notes.Cursor = cursor;
 
         TrackMouse(dt, cursor);
@@ -1085,6 +1089,8 @@ public partial class Main : Node2D
         double now = Time.GetTicksMsec() / 1000.0;
         _mouseStill = cursor.DistanceTo(_lastCursor) > 1 ? 0 : _mouseStill + dt;
 
+        // Carrying a post-it around is moving it, not shaking: none of that motion counts, even after letting go.
+        if (_notes.Dragging) _trail.Clear();
         _trail.Enqueue((now, cursor));
         while (_trail.Count > 0 && now - _trail.Peek().t > 0.8) _trail.Dequeue();
         float length = 0;
@@ -1105,7 +1111,6 @@ public partial class Main : Node2D
             }
             prev = p;
         }
-        // Not while carrying a post-it around: that's moving it, not shaking.
         if (length > 2400 && reversals >= 4 && !_notes.Dragging && _webs.Giant is { } giant)
         {
             _webs.Tear(giant);

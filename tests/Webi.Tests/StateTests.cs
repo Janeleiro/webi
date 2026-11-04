@@ -53,4 +53,43 @@ public class StateTests
             dir.Delete(recursive: true);
         }
     }
+
+    [Fact]
+    public void Old_note_positions_move_to_desktop_coordinates_once()
+    {
+        var state = new AppState();
+        state.Notes.Add(new StickyNote { Text = "café", X = 2100, Y = 300 });
+        state.Notes.Add(new StickyNote { Text = "sem lugar" });
+
+        state.MoveNotesToDesktop(-1920, 0);
+        state.MoveNotesToDesktop(-1920, 0); // already converted: no-op
+
+        Assert.True(state.NotesOnDesktop);
+        Assert.True(state.Dirty);
+        Assert.Equal(180f, state.Notes[0].X);
+        Assert.Equal(300f, state.Notes[0].Y);
+        Assert.Null(state.Notes[1].X);
+    }
+
+    [Fact]
+    public void Converted_notes_stay_converted_after_reload()
+    {
+        var dir = Directory.CreateTempSubdirectory("webi");
+        try
+        {
+            var path = Path.Combine(dir.FullName, "state.json");
+            var state = AppState.Load(path);
+            state.Notes.Add(new StickyNote { Text = "café", X = 100, Y = 300 });
+            state.MoveNotesToDesktop(-1920, 0);
+            state.Save();
+
+            var again = AppState.Load(path);
+            again.MoveNotesToDesktop(-1920, 0);
+            Assert.Equal(-1820f, again.Notes[0].X);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
 }

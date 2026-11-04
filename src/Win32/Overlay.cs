@@ -87,7 +87,13 @@ public sealed class Overlay
         Bounds = new Rect2(union.Position, union.Size);
 
         // Drop the extra windows of the previous layout; the main window is reused for the first monitor.
-        foreach (var s in _surfaces.Skip(1)) s.Window.QueueFree();
+        // Popups moved under one of them (menu, text dialog) go back to the root first, or they'd be freed too.
+        foreach (var s in _surfaces.Skip(1))
+        {
+            foreach (var child in s.Window.GetChildren())
+                if (child is Godot.Window popup) popup.Reparent(_root, keepGlobalTransform: false);
+            s.Window.QueueFree();
+        }
         _surfaces.Clear();
 
         for (int i = 0; i < Monitors.Count; i++)

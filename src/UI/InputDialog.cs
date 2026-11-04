@@ -40,6 +40,12 @@ public partial class InputDialog : ConfirmationDialog
     /// <summary>Asks for a line of text; <paramref name="done"/> gets it (not called for empty text or cancel).</summary>
     public void Ask(string prompt, string placeholder, string initial, Action<string> done, int maxLength = 0)
     {
+        // Already asking something: keep that question (and its answer) and just bring it to the front.
+        if (Visible)
+        {
+            GrabFocus();
+            return;
+        }
         _prompt.Text = prompt;
         _field.PlaceholderText = placeholder;
         _field.Text = initial;

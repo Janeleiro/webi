@@ -39,7 +39,7 @@ public sealed class StickyNote
 {
     public string Text { get; set; } = "";
     public DateTime Created { get; set; }
-    /// <summary>Where it hangs (top center, world coordinates); null until it is first shown.</summary>
+    /// <summary>Where it hangs (top center, Windows desktop coordinates); null until it is first shown.</summary>
     public float? X { get; set; }
     public float? Y { get; set; }
 }
@@ -58,6 +58,11 @@ public sealed class AppState
     public DailyStats Today { get; set; } = new();
     public List<QuickTimer> Timers { get; set; } = new();
     public List<StickyNote> Notes { get; set; } = new();
+    /// <summary>
+    /// Note positions are in desktop coordinates. Older files saved them relative to the top-left monitor; those
+    /// are converted once on start (see <see cref="MoveNotesToDesktop"/>).
+    /// </summary>
+    public bool NotesOnDesktop { get; set; }
     /// <summary>yyyy-MM-dd of the last holiday/birthday greeting, so it is said once a day.</summary>
     public string LastSpecialGreeting { get; set; } = "";
 
@@ -94,6 +99,19 @@ public sealed class AppState
         state.Path = path;
         state.RollDay(DateTime.Now);
         return state;
+    }
+
+    /// <summary>Converts note positions saved by older versions (relative to the top-left monitor) to desktop coordinates.</summary>
+    public void MoveNotesToDesktop(float originX, float originY)
+    {
+        if (NotesOnDesktop) return;
+        foreach (var n in Notes)
+        {
+            n.X += originX;
+            n.Y += originY;
+        }
+        NotesOnDesktop = true;
+        Dirty = true;
     }
 
     /// <summary>Starts a fresh <see cref="Today"/> when the date changed (also drops timers far in the past).</summary>

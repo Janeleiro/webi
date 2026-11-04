@@ -250,7 +250,7 @@ public static class Lines
 
     public static readonly string[] Tripped =
     {
-        "Ninguém viu isso.", "Foi de propósito. Treino de queda.", "Opa! Pata número sete enroscou.",
+        "Isso não aconteceu.", "Foi de propósito. Treino de queda.", "Opa! Pata número sete enroscou.",
         "Oito patas e mesmo assim tropeço. 🙄", "Esse pixel tava solto!", "Tô bem! Tô bem!",
         "Era um passo de dança novo. Sério.",
     };

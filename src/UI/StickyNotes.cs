@@ -8,7 +8,8 @@ namespace Webi.UI;
 /// <summary>
 /// Sticky notes hanging on silk threads from the top of the screen, swaying a little. New notes take a free spot
 /// on the right side of the primary monitor; they can be dragged anywhere (the thread follows) and only the trash
-/// can in the corner takes them down; the pencil in the other corner edits the text. World coordinates (drawn on every monitor's window).
+/// can in the corner takes them down; the pencil in the other corner edits the text. Drawn in world coordinates
+/// (on every monitor's window), but saved in Windows desktop coordinates, which don't move when monitors change.
 /// </summary>
 public partial class StickyNotes : Node2D
 {
@@ -20,12 +21,15 @@ public partial class StickyNotes : Node2D
     const int Columns = 4;
     /// <summary>Shortest thread a note can hang from when dragged up.</summary>
     const float MinThread = 16;
+    /// <summary>How far the cursor must move after grabbing a note before it counts as moving it (not a click).</summary>
+    const float DragSlop = 4;
 
     readonly List<StickyCard> _cards = new();
     readonly RandomNumberGenerator _rng = new();
     float _time;
     StickyCard? _held;
-    Vector2 _grab, _dragTo;
+    Vector2 _grab, _dragTo, _pressedAt;
+    bool _moved;
 
     /// <summary>The notes shown (the saved list: positions and order are written back into it).</summary>
     public List<StickyNote> Notes = new();
@@ -33,6 +37,8 @@ public partial class StickyNotes : Node2D
     public Rect2 Bounds;
     /// <summary>Work area of the monitor at a point (set by Main).</summary>
     public Func<Vector2, Rect2> WorkAreaAt = null!;
+    /// <summary>Windows desktop position of world (0, 0) (set by Main); notes are saved relative to the desktop.</summary>
+    public Vector2 Origin;
     public Vector2 Cursor;
     public int PixelScale = 2;
 
@@ -84,7 +90,7 @@ public partial class StickyNotes : Node2D
         return null;
     }
 
-    /// <summary>Picks up the note under the cursor and brings it to the front.</summary>
+    /// <summary>Picks up the note under the cursor and brings it to the front (it only moves once the cursor does).</summary>
     public void StartDrag(Vector2 cursor)
     {
         if (CardAt(cursor) is not { } card) return;
@@ -94,20 +100,44 @@ public partial class StickyNotes : Node2D
         _grab = cursor - card.Top;
         _dragTo = card.Top;
         card.Age = 1; // done lowering
-        Notes.Remove(card.Note);
-        Notes.Add(card.Note);
-        Refresh();
+        _pressedAt = cursor;
+        _moved = false;
+        // Brought to the front: last in the saved order and drawn last.
+        if (Notes[^1] != card.Note)
+        {
+            Notes.Remove(card.Note);
+            Notes.Add(card.Note);
+            Moved?.Invoke();
+        }
+        _cards.Remove(card);
+        _cards.Add(card);
+        MoveChild(card, -1);
     }
 
-    public void DragTo(Vector2 cursor) => _dragTo = cursor - _grab;
+    public void DragTo(Vector2 cursor)
+    {
+        _moved |= cursor.DistanceTo(_pressedAt) > DragSlop;
+        if (_moved) _dragTo = cursor - _grab;
+    }
 
     public void EndDrag()
     {
         if (_held == null) return;
-        _held.Note.X = _held.Top.X;
-        _held.Note.Y = _held.Top.Y;
+        // A plain click keeps the saved spot: the drawn one includes the sway, so saving it would creep sideways.
+        if (_moved)
+        {
+            (_held.Note.X, _held.Note.Y) = (_held.Top.X + Origin.X, _held.Top.Y + Origin.Y);
+            Moved?.Invoke();
+        }
         _held = null;
-        Moved?.Invoke();
+    }
+
+    /// <summary>Where a note hangs in world coordinates (its saved spot, kept inside the monitor it falls on); null if not placed yet.</summary>
+    Vector2? Placed(StickyCard c, Vector2 size)
+    {
+        if (c.Note.X is not float x || c.Note.Y is not float y) return null;
+        var saved = new Vector2(x, y) - Origin;
+        return Clamp(saved, size, WorkAreaAt(saved));
     }
 
     /// <summary>Keeps a note (by its top center) inside a monitor's work area, below the top edge.</summary>
@@ -121,16 +151,18 @@ public partial class StickyNotes : Node2D
     /// </summary>
     Vector2 FreeSpot(StickyCard card)
     {
+        Vector2 Slot(int slot) => new(Bounds.End.X - 40 - Width / 2 - (slot % Columns) * (Width + 18),
+            Bounds.Position.Y + Bounds.Size.Y * (0.18f + (slot % 2) * 0.04f) + slot / Columns * (StickyCard.MinHeight + 30));
+
         for (int slot = 0; ; slot++)
         {
-            var top = new Vector2(Bounds.End.X - 40 - Width / 2 - (slot % Columns) * (Width + 18),
-                Bounds.Position.Y + Bounds.Size.Y * (0.18f + (slot % 2) * 0.04f) + slot / Columns * (StickyCard.MinHeight + 30));
+            var top = Slot(slot);
             var rect = new Rect2(top - new Vector2(Width / 2, 0), new Vector2(Width, MinHeight(card)));
             // Past a few rows (or off the bottom) it gives up and stacks on the first spot.
-            if (slot >= Columns * 5 || top.Y + MinHeight(card) > Bounds.End.Y)
-                return new Vector2(Bounds.End.X - 40 - Width / 2, Bounds.Position.Y + Bounds.Size.Y * 0.18f);
-            if (!_cards.Exists(c => c != card && c.Note.X is float x && c.Note.Y is float y
-                    && new Rect2(x - Width / 2, y, Width, MinHeight(c)).Intersects(rect))) return top;
+            if (slot >= Columns * 5 || top.Y + MinHeight(card) > Bounds.End.Y) return Slot(0);
+            // Compared with where the other notes are drawn (clamped), not their raw saved spots.
+            if (!_cards.Exists(c => c != card && Placed(c, new Vector2(Width, MinHeight(c))) is Vector2 p
+                    && new Rect2(p.X - Width / 2, p.Y, Width, MinHeight(c)).Intersects(rect))) return top;
         }
     }
 
@@ -159,14 +191,13 @@ public partial class StickyNotes : Node2D
             {
                 if (c.Note.X == null || c.Note.Y == null)
                 {
-                    var spot = FreeSpot(c);
+                    var spot = FreeSpot(c) + Origin;
                     (c.Note.X, c.Note.Y) = (spot.X, spot.Y);
                     Moved?.Invoke();
                 }
                 // Clamped again in case the monitors changed since it was put there.
-                var saved = new Vector2(c.Note.X.Value, c.Note.Y.Value);
-                area = WorkAreaAt(saved);
-                c.Top = Clamp(saved, c.Size, area);
+                c.Top = Placed(c, c.Size)!.Value;
+                area = WorkAreaAt(c.Top);
                 // Starts swaying again little by little after being let go, instead of jumping sideways.
                 c.Swing = Mathf.Min(1, c.Swing + dt / 1.5f);
             }
