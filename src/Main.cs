@@ -66,7 +66,7 @@ public partial class Main : Node2D
     {
         Pomodoro, PomodoroStatus, Upcoming, PcStatus, AppComments, MakeWeb, ClearWebs, AutoWebs, Monitor, Autostart, HideOnFullscreen,
         OpenConfig, ReloadConfig, DebugRestart, OpenLog, Quit,
-        NewTimer, CancelTimers, NewNote, DaySummary, Friendship, Bugs, Sounds, SmallTalk, Seasonal, Birthday, Hide,
+        NewTimer, CancelTimers, NewNote, DaySummary, Friendship, Bugs, Sounds, SmallTalk, Seasonal, Birthday, Hide, Version,
     }
 
     static readonly int[] ReminderIntervals = { 15, 30, 45, 60, 90 };
@@ -93,6 +93,7 @@ public partial class Main : Node2D
             return;
         }
 
+        GD.Print($"Webi {Version}");
         Engine.MaxFps = ActiveFps;
         _config = Config.Load();
         _state = AppState.Load(AppState.FilePath);
@@ -399,6 +400,8 @@ public partial class Main : Node2D
         menu.AddItem(DebugMode ? "🐞 Reiniciar em modo normal" : "🐞 Reiniciar em modo debug", (int)MenuId.DebugRestart);
         if (DebugMode) menu.AddItem("📄 Abrir log de debug", (int)MenuId.OpenLog);
         menu.AddSeparator();
+        menu.AddItem($"🕷️ Webi {Version}", (int)MenuId.Version);
+        menu.SetItemDisabled(menu.GetItemIndex((int)MenuId.Version), true);
         menu.AddItem("👋 Sair", (int)MenuId.Quit);
         menu.IdPressed += id =>
         {
@@ -722,6 +725,9 @@ public partial class Main : Node2D
     }
 
     static bool DebugMode => DebugEnv.Debug;
+
+    /// <summary>The app version, from application/config/version in project.godot (also stamped on the exported .exe).</summary>
+    static readonly string Version = "v" + ProjectSettings.GetSetting("application/config/version").AsString();
 
     /// <summary>Starts a fresh instance (same exe and arguments) with or without WEBI_DEBUG, then quits.</summary>
     void Restart(bool debug)
