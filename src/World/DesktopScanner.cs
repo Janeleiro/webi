@@ -90,6 +90,8 @@ public sealed class DesktopScanner
         if (fg == IntPtr.Zero || _overlay.Handles.Contains(fg) || IsRemoteDesktop(fg)) return null;
         string cls = Native.GetClass(fg);
         if (cls is "Progman" or "WorkerW") return null;
+        // A maximized window also overhangs its monitor, but keeps its caption (same rule as in Visit).
+        if (HasCaption(fg)) return null;
         if (!Native.GetWindowRect(fg, out var r)) return null;
         var rect = new Rect2(r.Left - _overlay.WorldOrigin.X, r.Top - _overlay.WorldOrigin.Y, r.Width, r.Height);
         foreach (var m in _overlay.Monitors)

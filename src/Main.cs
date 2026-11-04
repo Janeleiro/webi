@@ -55,6 +55,8 @@ public partial class Main : Node2D
     /// <summary>Out of sight: behind a fullscreen app, or parked with no floor anywhere.</summary>
     bool _hidden;
     bool _fullscreenHide;
+    /// <summary>Some monitor has a fullscreen app in front (game, video): the post-its get out of the way.</summary>
+    bool _fullscreenAnywhere;
     bool _pressing, _dragging, _leftWasDown, _rightWasDown;
     Vector2 _pressPos;
     float _lastDelta = 1 / 60f;
@@ -824,8 +826,8 @@ public partial class Main : Node2D
             _config.Save();
             UpdateSeason();
             var now = System.DateTime.Now;
-            if (now.Day == d && now.Month == m) SpecialGreeting();
-            else _bubble.Show($"Anotado: {d:00}/{m:00}! Nesse dia vai ter festa. 🎉", 4);
+            if (!(now.Day == d && now.Month == m && SpecialGreeting()))
+                _bubble.Show($"Anotado: {d:00}/{m:00}! Nesse dia vai ter festa. 🎉", 4);
         }, 10);
     }
 
@@ -863,8 +865,13 @@ public partial class Main : Node2D
         if (_fullscreenTimer <= 0)
         {
             _fullscreenTimer = 1;
-            _fullscreenHide = _config.HideOnFullscreen && _scanner.FullscreenMonitor() is Rect2 full && full.HasPoint(_spider.BodyCenter);
+            var full = _config.HideOnFullscreen ? _scanner.FullscreenMonitor() : null;
+            _fullscreenHide = full is Rect2 f && f.HasPoint(_spider.BodyCenter);
+            _fullscreenAnywhere = full != null;
         }
+        // Post-its hang on every monitor, so any fullscreen app hides them (and their spots stop taking clicks).
+        _notes.Visible = !(_fullscreenAnywhere || _userHidden);
+        if (!_notes.Visible && _notes.Dragging) _notes.EndDrag();
         bool hide = _fullscreenHide || _spider.Parked || _userHidden;
         if (hide != _hidden)
         {
@@ -931,7 +938,7 @@ public partial class Main : Node2D
             || (!_hidden && _spider.HitRect().HasPoint(cursor))
             || (_bubble.Visible && _bubble.GetGlobalRect().HasPoint(cursor))
             || (_shout.Visible && _shout.GetGlobalRect().HasPoint(cursor))
-            || _notes.NoteAt(cursor) != null;
+            || (_notes.Visible && _notes.NoteAt(cursor) != null);
         _overlay.UpdateClickThrough(cursor, interactive);
     }
 

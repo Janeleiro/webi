@@ -85,6 +85,8 @@ public partial class StickyNotes : Node2D
 
     StickyCard? CardAt(Vector2 p)
     {
+        // Hidden (fullscreen app, Webi hidden): clicks there belong to whatever is underneath.
+        if (!Visible) return null;
         for (int i = _cards.Count - 1; i >= 0; i--)
             if (_cards[i].Rect.HasPoint(p)) return _cards[i];
         return null;

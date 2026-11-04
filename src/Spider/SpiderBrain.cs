@@ -465,7 +465,12 @@ public sealed class SpiderBrain
     // ------------------------------------------------------------------ alerts & the giant web
 
     /// <summary>Queues an alert: Webi goes to the middle of the screen and shouts it.</summary>
-    public void Announce(Notice notice) => _notices.Enqueue(notice);
+    public void Announce(Notice notice)
+    {
+        // Already waiting (fired again while she was quiet, e.g. a long meeting): one shout is enough.
+        if (_notices.Any(n => n == notice || (notice.Snooze != null && n.Snooze == notice.Snooze))) return;
+        _notices.Enqueue(notice);
+    }
 
     /// <summary>The alert was clicked away: stop shouting and go back to normal.</summary>
     public void DismissShout()
@@ -550,7 +555,13 @@ public sealed class SpiderBrain
             case Stage.Weaving:
             {
                 var giant = Webs?.Giant;
-                if (giant == null || _spider.State != Mode.Weaving) { _stage = Stage.None; return false; }
+                if (giant == null || _spider.State != Mode.Weaving)
+                {
+                    // Interrupted (picked up, fell): the half-made giant web falls apart instead of staying forever.
+                    if (giant != null) Webs!.Tear(giant);
+                    _stage = Stage.None;
+                    return false;
+                }
                 // Long webs go faster so the whole screen takes about half a minute to a minute.
                 float speed = Mathf.Max(GiantWeaveSpeed, giant.RouteLength / 60f);
                 _weaveDistance += dt * speed;
@@ -733,8 +744,9 @@ public sealed class SpiderBrain
             _spider.WeavePoint = web.WalkRoute(_weaveDistance);
             if (_weaveDistance >= web.RouteLength)
             {
-                EndTask();
-                Webs.Trim(MaxWebs);
+                _task = WebTask.None; // finished, not abandoned
+                // Always keeps the one just made, even with max_webs = 0 (that only stops her weaving on her own).
+                Webs.Trim(Mathf.Max(1, MaxWebs));
                 React(Face.Happy, 2);
                 Say?.Invoke(Lines.Pick(Lines.WebDone), 4);
                 HangOn(web);
@@ -814,8 +826,14 @@ public sealed class SpiderBrain
         if (_rng.Randf() < 0.5f) Say?.Invoke(Lines.Pick(Lines.WebHang), 3);
     }
 
+    /// <summary>Drops the web task; a web still being woven is abandoned and the spider lets go of it.</summary>
     void EndTask()
     {
+        if (_task == WebTask.Building)
+        {
+            if (Webs?.Find(_taskKey) is { } web && web.Progress < 1) web.Alive = false;
+            if (_spider.State == Mode.Weaving) _spider.Fall();
+        }
         _task = WebTask.None;
     }
 
