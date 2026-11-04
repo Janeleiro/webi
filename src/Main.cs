@@ -330,6 +330,11 @@ public partial class Main : Node2D
         AddChild(_sfx);
         _input = new InputDialog { Visible = false };
         AddChild(_input);
+        // Opened on another monitor's window: back home once closed (that window can be rebuilt).
+        _input.VisibilityChanged += () =>
+        {
+            if (!_input.Visible) CallDeferred(MethodName.ReturnInputHome);
+        };
 
         _menu = CreateMenu();
         AddChild(_menu);
@@ -538,6 +543,18 @@ public partial class Main : Node2D
         _menu.Position = new Vector2I((int)at.X, (int)at.Y);
         _menu.ResetSize();
         _menu.Popup();
+    }
+
+    /// <summary>Makes the next text dialog open centered on the monitor of the point (Godot centers it on its owner window).</summary>
+    void InputOn(Vector2 at)
+    {
+        var host = _overlay.WindowAt(at);
+        if (_input.GetParent() != host) _input.Reparent(host, keepGlobalTransform: false);
+    }
+
+    void ReturnInputHome()
+    {
+        if (!_input.Visible && _input.GetParent() != this) _input.Reparent(this, keepGlobalTransform: false);
     }
 
     void ReturnMenuHome()
@@ -987,6 +1004,7 @@ public partial class Main : Node2D
             }
             else if (_notes.PencilAt(cursor) is { } editing)
             {
+                InputOn(cursor);
                 EditNote(editing);
             }
             else if (_notes.NoteAt(cursor) != null)
