@@ -6,7 +6,7 @@ companhia com reações pré-programadas, lembretes, pomodoro e monitor do siste
 
 ## Baixar e usar
 
-Baixe o `Webi.exe` da [versão mais recente](https://github.com/Janeleiro/webi/releases/latest) e abra. É um arquivo único
+Baixe o `.exe` da [versão mais recente](https://github.com/Janeleiro/webi/releases/latest) e abra. É um arquivo único
 que já traz tudo dentro: não precisa instalar nada, nem Godot, nem .NET. Funciona no Windows 10/11 64 bits.
 
 - O exe não é assinado digitalmente, então o Windows pode mostrar "O Windows protegeu o computador".
@@ -62,7 +62,7 @@ Para publicar uma versão:
 1. Atualize `config/version` no `project.godot` e faça o commit.
 2. Gere o exe (seção acima) e teste.
 3. Crie a tag: `git tag v0.1.0` e `git push origin v0.1.0`.
-4. No GitHub, crie o release a partir da tag e anexe o `build\Webi.exe`.
+4. No GitHub, crie o release a partir da tag e anexe o `build\Webi.exe`, renomeado para `webi_X.Y.Z.exe`.
 
 ## Teias
 
