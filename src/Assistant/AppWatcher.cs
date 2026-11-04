@@ -24,7 +24,7 @@ public sealed class AppWatcher
     readonly Overlay _overlay;
     readonly ProcessNames _processNames = new();
     readonly Dictionary<string, double> _lastCommentByApp = new();
-    readonly Queue<string> _recentLines = new();
+    readonly RecentPicker _recentLines = new(12);
     readonly RandomNumberGenerator _rng = new();
 
     double _clock, _pollTimer, _since, _lastComment = -GlobalCooldown, _lastPomodoroHint = -PomodoroCooldown;
@@ -109,12 +109,5 @@ public sealed class AppWatcher
     }
 
     /// <summary>Random line, avoiding the last few said.</summary>
-    string Pick(string[] lines)
-    {
-        var fresh = lines.Where(l => !_recentLines.Contains(l)).ToArray();
-        var line = (fresh.Length > 0 ? fresh : lines)[_rng.RandiRange(0, (fresh.Length > 0 ? fresh : lines).Length - 1)];
-        _recentLines.Enqueue(line);
-        while (_recentLines.Count > 12) _recentLines.Dequeue();
-        return line;
-    }
+    string Pick(string[] lines) => _recentLines.Pick(lines);
 }

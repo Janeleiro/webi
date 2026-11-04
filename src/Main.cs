@@ -721,7 +721,7 @@ public partial class Main : Node2D
         }
     }
 
-    static bool DebugMode => OS.HasEnvironment("WEBI_DEBUG");
+    static bool DebugMode => DebugEnv.Debug;
 
     /// <summary>Starts a fresh instance (same exe and arguments) with or without WEBI_DEBUG, then quits.</summary>
     void Restart(bool debug)
@@ -732,6 +732,9 @@ public partial class Main : Node2D
         if (OS.CreateProcess(OS.GetExecutablePath(), OS.GetCmdlineArgs()) < 0)
         {
             OS.UnsetEnvironment("WEBI_RESTARTING");
+            // Still running as before: put WEBI_DEBUG back as it was.
+            if (DebugMode) OS.SetEnvironment("WEBI_DEBUG", "1");
+            else OS.UnsetEnvironment("WEBI_DEBUG");
             _bubble.Show("Não consegui me reiniciar... 😵", 4);
             return;
         }
@@ -757,9 +760,9 @@ public partial class Main : Node2D
     void Poke()
     {
         if (_userHidden) ToggleHide();
-        var text = _brain.Poke(_overlay.CursorWorld());
+        var (text, annoyed) = _brain.Poke(_overlay.CursorWorld());
         _state.Today.Pokes++;
-        _friendship.Add(Lines.TooManyPokes.Contains(text) ? -2 : 1);
+        _friendship.Add(annoyed ? -2 : 1);
         _sfx.Play(Sound.Chirp);
         _bubble.Show(text, 4);
     }

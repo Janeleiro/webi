@@ -104,13 +104,13 @@ public sealed class SpiderBrain
         _map = map;
         _spider.EdgeReached += OnEdge;
         _spider.Landed += OnLanded;
-        if (OS.HasEnvironment("WEBI_DEMO")) QueueDemo();
+        if (DebugEnv.Demo != null) QueueDemo();
     }
 
     /// <summary>Debug (WEBI_DEMO=1): plays every animation in a fixed order instead of the normal behaviour.</summary>
     void QueueDemo()
     {
-        if (OS.GetEnvironment("WEBI_DEMO") == "web") _demo.Enqueue(() => StartWeb());
+        if (DebugEnv.Demo == "web") _demo.Enqueue(() => StartWeb());
         _demo.Enqueue(() => _spider.PlayGesture(Gesture.Wave, 1));
         _demo.Enqueue(() => _spider.PlayGesture(Gesture.Groom));
         _demo.Enqueue(() => _spider.PlayGesture(Gesture.Tap, -1));
@@ -130,7 +130,7 @@ public sealed class SpiderBrain
 
     bool TickDemo(float dt)
     {
-        if (!OS.HasEnvironment("WEBI_DEMO")) return false;
+        if (DebugEnv.Demo == null) return false;
         if (TickWebTask(dt) || _spider.State == Mode.Hanging) return true;
         if (_spider.State != Mode.Grounded || _spider.IsWalking || _spider.CurrentGesture != Gesture.None) return true;
         _demoTimer -= dt;
@@ -427,16 +427,16 @@ public sealed class SpiderBrain
 
     /// <summary>
     /// Reaction to a click: a random pre-programmed line with a matching face and gesture.
-    /// Clicking too many times in a row gets an annoyed hop away. Returns the line to show.
+    /// Clicking too many times in a row gets an annoyed hop away (<c>annoyed</c>). Returns the line to show.
     /// </summary>
-    public string Poke(Vector2 cursor)
+    public (string text, bool annoyed) Poke(Vector2 cursor)
     {
         WakeUp();
         if (_cling == Cling.Holding)
         {
             LetGo();
             React(Face.Happy, 1.5f);
-            return Lines.Pick(Lines.CursorClickedOff);
+            return (Lines.Pick(Lines.CursorClickedOff), false);
         }
         double now = Time.GetTicksMsec() / 1000.0;
         _pokes.Enqueue(now);
@@ -448,7 +448,7 @@ public sealed class SpiderBrain
             _pokes.Clear();
             React(Face.Sad, 2f);
             HopAwayFrom(cursor);
-            return Lines.Pick(Lines.TooManyPokes);
+            return (Lines.Pick(Lines.TooManyPokes), true);
         }
 
         int level = FriendLevel?.Invoke() ?? 0;
@@ -459,7 +459,7 @@ public sealed class SpiderBrain
         React(reaction.Face, 2f);
         if (reaction.Gesture == Gesture.Wave) Greet(cursor);
         else if (reaction.Gesture != Gesture.None) _spider.PlayGesture(reaction.Gesture);
-        return reaction.Text;
+        return (reaction.Text, false);
     }
 
     // ------------------------------------------------------------------ alerts & the giant web

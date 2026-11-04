@@ -115,7 +115,7 @@ public partial class Spider
                 leg.Stepping = true; leg.T = 0; leg.From = leg.Foot;
                 leg.To = ChainPoint(Surface, S + leg.Side * RestSpread[leg.Index] * s);
             }
-            if (OS.HasEnvironment("WEBI_GAIT_LOG") && IsWalking)
+            if (DebugEnv.GaitLog && IsWalking)
             {
                 var air = new System.Text.StringBuilder();
                 for (int i = 0; i < 8; i++) if (_legs[i].Stepping) air.Append(i < 4 ? $"L{_legs[i].Index + 1} " : $"R{_legs[i].Index + 1} ");

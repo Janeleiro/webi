@@ -21,7 +21,7 @@ public sealed class SmallTalk
     readonly AppState _state;
     readonly Friendship _friendship;
     readonly RandomNumberGenerator _rng = new();
-    readonly Queue<string> _recent = new();
+    readonly RecentPicker _recent = new(10);
     double _untilNext;
     double _checkTimer;
 
@@ -85,29 +85,9 @@ public sealed class SmallTalk
     }
 
     /// <summary>A question that fits the time of day, not one asked recently.</summary>
-    Question PickQuestion(DateTime now)
-    {
-        var pool = Questions(now).ToList();
-        var fresh = pool.Where(q => !_recent.Contains(q.Text)).ToList();
-        var q = (fresh.Count > 0 ? fresh : pool)[_rng.RandiRange(0, (fresh.Count > 0 ? fresh : pool).Count - 1)];
-        Remember(q.Text);
-        return q;
-    }
+    Question PickQuestion(DateTime now) => _recent.Pick(Questions(now).ToList(), q => q.Text);
 
-    string Pick(string[] lines)
-    {
-        var fresh = lines.Where(l => !_recent.Contains(l)).ToArray();
-        var pool = fresh.Length > 0 ? fresh : lines;
-        var line = pool[_rng.RandiRange(0, pool.Length - 1)];
-        Remember(line);
-        return line;
-    }
-
-    void Remember(string text)
-    {
-        _recent.Enqueue(text);
-        while (_recent.Count > 10) _recent.Dequeue();
-    }
+    string Pick(string[] lines) => _recent.Pick(lines);
 
     /// <summary>Answering anything is a little friendship point.</summary>
     Action Answered(Action? also = null) => () =>

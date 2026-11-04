@@ -51,12 +51,9 @@ public partial class Spider
     /// </summary>
     void Snapshot(float dt)
     {
-        var dir = OS.GetEnvironment("WEBI_SNAPSHOT");
-        if (string.IsNullOrEmpty(dir)) return;
-        int max = int.TryParse(OS.GetEnvironment("WEBI_SNAPSHOT_MAX"), out var m) ? m : 40;
-        float fps = float.TryParse(OS.GetEnvironment("WEBI_SNAPSHOT_FPS"), System.Globalization.CultureInfo.InvariantCulture, out var f) ? f : 2;
-        if (_snapCount >= max || (_snapTimer -= dt) > 0) return;
-        _snapTimer = 1f / fps;
+        if (DebugEnv.SnapshotDir is not { } dir) return;
+        if (_snapCount >= DebugEnv.SnapshotMax || (_snapTimer -= dt) > 0) return;
+        _snapTimer = 1f / DebugEnv.SnapshotFps;
         var img = _viewport.GetTexture().GetImage();
         img.Resize(img.GetWidth() * 2, img.GetHeight() * 2, Image.Interpolation.Nearest);
         string label = CurrentGesture != Gesture.None ? CurrentGesture.ToString()
