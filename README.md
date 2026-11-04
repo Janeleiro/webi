@@ -309,3 +309,12 @@ e pular.
   canto, sendo arremessada...). Só atravessa a divisa entre dois monitores encostados.
 - **Teia:** pernas abertas na descida, remando devagar quando parada e puxando o fio com as patas
   da frente na subida.
+
+## Licença
+
+- **Código** (inclusive os sons, sintetizados em `src/UI/Sfx.cs`): [GNU GPL v3](LICENSE). Você pode usar, estudar,
+  modificar e redistribuir; versões modificadas que forem distribuídas também precisam ser GPL v3, com o código aberto.
+- **Arte** (`art/`): [CC BY-NC 4.0](art/LICENSE.md). Uso e adaptação com crédito, sem fins comerciais. As folhas
+  de origem foram criadas com auxílio de IA.
+
+Copyright © 2026 Jota Carvalho.
