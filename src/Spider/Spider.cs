@@ -103,6 +103,8 @@ public partial class Spider : Node2D
     bool _fastDrop;
     /// <summary>Hanging head-down: the thread is held by the feet (the bottom of the sprite, now on top).</summary>
     bool _upsideDown;
+    /// <summary>Dragged because it grabbed the cursor itself (holds on) rather than being picked up (flails).</summary>
+    bool _clinging;
 
     /// <summary>Chance that a leisurely silk descent is done upside down.</summary>
     const float UpsideDownChance = 0.35f;
@@ -448,6 +450,7 @@ public partial class Spider : Node2D
         // A good length of silk, so it dangles and swings well below the cursor. Clinging keeps the body just
         // clear of the pointer, so clicks still reach the windows under it.
         _ropeLen = clinging ? 6 * PixelScale : 110 + 15 * PixelScale;
+        _clinging = clinging;
         _prevBody = BodyCenter;
         State = Mode.Dragged;
         Surface = null;

@@ -156,6 +156,14 @@ public partial class Spider
                 return tucked.Lerp(spreadOut, fall) + new Vector2(0, Mathf.Sin(phase * 9) * 1.5f);
             }
             case Mode.Dragged:
+                if (_clinging)
+                {
+                    // Holding on to the pointer: the front legs grip it above, the rest hang still and only
+                    // trail behind as it swings (the feet ease toward the pose, so the swing drags them).
+                    if (idx <= 1) return new Vector2(side * (4 + idx * 3), -HangOffset - 4);
+                    return new Vector2(side * spread * 0.8f, BodyHeight * 0.6f + idx * 3 + Mathf.Sin(_time * 1.2f + idx) * 0.5f);
+                }
+                // Picked up by the user: kicking about.
                 return new Vector2(side * (spread * 0.9f + Mathf.Sin(phase * 14) * 6),
                     BodyHeight * 0.5f + idx * 3 + Mathf.Cos(phase * 14) * 6);
             case Mode.Weaving:
