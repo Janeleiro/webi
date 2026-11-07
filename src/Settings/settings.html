@@ -209,9 +209,9 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; backgrou
         <div class="row"><div class="label"><b>📊 Monitor do sistema</b><small>CPU, memória e bateria.</small></div>
           <label class="sw"><input type="checkbox" data-k="config.system_monitor"><span></span></label></div>
         <div class="row sub" data-when="config.system_monitor"><div class="label"><b>🔥 Alerta de CPU</b><small>Quando passar disso por um tempinho.</small></div>
-          <div class="ctl"><input type="range" min="30" max="100" step="5" data-k="config.cpu_alert_percent" data-t="int"><span class="unit" data-show="config.cpu_alert_percent" data-suffix="%"></span></div></div>
+          <div class="ctl"><input type="range" min="30" max="100" step="1" data-k="config.cpu_alert_percent" data-t="int"><span class="unit" data-show="config.cpu_alert_percent" data-suffix="%"></span></div></div>
         <div class="row sub" data-when="config.system_monitor" id="battery-row"><div class="label"><b>🔋 Alerta de bateria</b><small id="battery-note">Quando cair até aqui (fora da tomada).</small></div>
-          <div class="ctl"><input type="range" min="5" max="50" step="5" data-k="config.battery_alert_percent" data-t="int"><span class="unit" data-show="config.battery_alert_percent" data-suffix="%"></span></div></div>
+          <div class="ctl"><input type="range" min="1" max="99" step="1" data-k="config.battery_alert_percent" data-t="int"><span class="unit" data-show="config.battery_alert_percent" data-suffix="%"></span></div></div>
       </div>
     </section>
 
@@ -319,13 +319,15 @@ function load(s) {
   render();
 }
 
-const dirty = () => JSON.stringify(model) !== baseline;
+let birthdayBad = false;   // a day without a month (or 31/02): not saved until fixed
+const dirty = () => birthdayBad || JSON.stringify(model) !== baseline;
 function refreshDirty() { $("#savebar").classList.toggle("show", dirty()); }
 
 // ---------------------------------------------------------------- binding
+/** The input's value for the model, or undefined when it isn't one yet (a number field emptied while typing). */
 function readInput(el) {
   if (el.type === "checkbox") return el.checked;
-  if (el.dataset.t === "int") { const n = parseInt(el.value, 10); return Number.isFinite(n) ? n : 0; }
+  if (el.dataset.t === "int") { const n = parseInt(el.value, 10); return Number.isFinite(n) ? n : undefined; }
   return el.value;
 }
 
@@ -348,12 +350,16 @@ function refreshDerived() {
 document.addEventListener("input", e => {
   const el = e.target;
   if (!el.dataset.k) return;
-  setPath(model, el.dataset.k, readInput(el));
+  const value = readInput(el);
+  if (value === undefined) return;   // keeps the last valid value (put back in the field when it loses focus)
+  setPath(model, el.dataset.k, value);
   refreshDerived();
   refreshDirty();
 });
 document.addEventListener("change", e => {
   if (e.target.matches("select[data-k], input[type=checkbox][data-k]")) e.target.dispatchEvent(new Event("input", { bubbles: true }));
+  // A number left empty (or not a number) wasn't taken: show the value that will be saved again.
+  if (e.target.matches("input[type=number][data-k]")) writeInput(e.target, getPath(model, e.target.dataset.k));
 });
 
 // ---------------------------------------------------------------- birthday
@@ -363,7 +369,12 @@ function setupBirthday() {
   const months = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
   m.innerHTML = `<option value="">mês</option>` + months.map((n, i) => `<option value="${String(i + 1).padStart(2, "0")}">${n}</option>`).join("");
   const update = () => {
-    model.config.birthday = d.value && m.value ? `${d.value}/${m.value}` : "";
+    // Days the month doesn't have can't be picked (29/02 can: leap years).
+    const days = m.value ? new Date(2024, +m.value, 0).getDate() : 31;
+    for (const o of d.options) if (o.value) o.disabled = +o.value > days;
+    const both = d.value && m.value, none = !d.value && !m.value;
+    birthdayBad = !(none || (both && +d.value <= days));
+    if (!birthdayBad) model.config.birthday = both ? `${d.value}/${m.value}` : "";
     refreshDirty();
   };
   d.addEventListener("change", update);
@@ -373,6 +384,7 @@ function fillBirthday() {
   const [d, m] = (model.config.birthday || "").split("/");
   $("#bday-d").value = d || "";
   $("#bday-m").value = m || "";
+  birthdayBad = false;
 }
 
 // ---------------------------------------------------------------- render
@@ -399,10 +411,15 @@ function render() {
 
 // ---------------------------------------------------------------- actions
 async function save() {
+  if (birthdayBad) {
+    toast("O aniversário precisa de dia e mês válidos (ou os dois em branco).", true);
+    return false;
+  }
   const btn = $("#save");
   btn.disabled = true;
   try {
-    load(await api("PUT", "/api/state", model));
+    // The stamp of the config.json this page was loaded from: the server refuses the save if the file changed since.
+    load(await api("PUT", "/api/state", { ...model, stamp: state.config_stamp ?? "" }));
     toast("Configurações salvas! ✅");
     return true;
   } catch (err) {

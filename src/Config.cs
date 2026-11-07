@@ -63,6 +63,23 @@ public sealed class Config
     public static string FilePath => ProjectSettings.GlobalizePath("user://config.json");
 
     /// <summary>
+    /// Fingerprint of config.json as it is on disk ("" when it's missing or unreadable). The settings page sends back
+    /// the one it loaded, so a save doesn't silently undo edits made to the file by hand in the meantime.
+    /// </summary>
+    public static string FileStamp()
+    {
+        try
+        {
+            return File.Exists(FilePath) ? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(FilePath))) : "";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return "";
+        }
+    }
+
+
+    /// <summary>
     /// Why the file couldn't be read (invalid JSON), or null. The defaults are used meanwhile and nothing is
     /// saved, so the file the user is fixing isn't overwritten.
     /// </summary>

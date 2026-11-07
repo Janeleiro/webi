@@ -49,10 +49,13 @@ public partial class Main : Node2D
     PopupMenu _menu = null!;
     PopupMenu? _trayMenu;
     /// <summary>Menus with labels to refresh: the right-click one and the tray one.</summary>
-    readonly System.Collections.Generic.List<PopupMenu> _checkMenus = new();
+    readonly System.Collections.Generic.List<PopupMenu> _menus = new();
     StatusIndicator? _tray;
     /// <summary>The settings page, created the first time it's opened.</summary>
     SettingsServer? _settings;
+    /// <summary>Colour and size the spider is drawn with now (see <see cref="ApplyConfig"/>).</summary>
+    string _appliedFur = "";
+    int _appliedScale;
 
     float _scanTimer, _topmostTimer, _fullscreenTimer, _layoutTimer, _debugTimer, _tooltipTimer;
     /// <summary>Out of sight: behind a fullscreen app, or parked with no floor anywhere.</summary>
@@ -107,6 +110,7 @@ public partial class Main : Node2D
         _spider.Setup(_map, _overlay.Bounds, PrimaryWork(), _config.Scale);
         RebuildWorld();
         _spider.SetFur(FurColors.Find(_config.FurColor));
+        (_appliedFur, _appliedScale) = (_config.FurColor, _config.Scale);
 
         _brain = new SpiderBrain(_spider, _map)
         {
@@ -343,11 +347,10 @@ public partial class Main : Node2D
     /// <summary>Builds a menu of quick actions (used for the right-click menu and the tray).</summary>
     PopupMenu CreateMenu()
     {
-        // Popups are transient children of the (always-on-top) overlay, so they already stay above it.
-        // Don't set AlwaysOnTop on them: Godot can't make an on-top window transient, and the submenus then
-        // fail to open and take the whole menu down.
+        // Popups are transient children of the (always-on-top) overlay, so they already stay above it. Don't set
+        // AlwaysOnTop on them: Godot can't make an on-top window transient.
         var menu = new PopupMenu();
-        _checkMenus.Add(menu);
+        _menus.Add(menu);
         menu.AddItem("🍅 Iniciar pomodoro", (int)MenuId.Pomodoro);
         menu.AddItem("⏱ Status do pomodoro", (int)MenuId.PomodoroStatus);
         menu.AddItem("⏰ Próximos lembretes", (int)MenuId.Upcoming);
@@ -440,7 +443,7 @@ public partial class Main : Node2D
 
     void RefreshMenus()
     {
-        foreach (var m in _checkMenus)
+        foreach (var m in _menus)
         {
             void Text(MenuId id, string t) { int i = m.GetItemIndex((int)id); if (i >= 0) m.SetItemText(i, t); }
             Text(MenuId.Hide, _userHidden ? "🙉 Mostrar (Ctrl+Alt+H)" : "🙈 Esconder (Ctrl+Alt+H)");
@@ -530,6 +533,7 @@ public partial class Main : Node2D
             Save = SaveSettings,
             Reload = ReloadConfig,
             OpenConfigFile = () => OS.ShellOpen(Config.FilePath),
+            Stamp = Config.FileStamp,
             Log = message => GD.Print($"[configurações] {message}"),
         };
         if (!_settings.Start())
@@ -567,7 +571,10 @@ public partial class Main : Node2D
         if (pause) _reminders.ResetBreak();
         if (autostart is bool on && on != Autostart.IsEnabled()) Autostart.SetEnabled(on);
         _brain.React(Face.Happy, 1.5f);
-        if (_config.Birthday != birthday && SpecialGreeting()) return;
+        // A new birthday that is today gets its party right away (any other date just gets the usual confirmation).
+        var today = System.DateTime.Now;
+        if (_config.Birthday != birthday && Seasons.TryParseBirthday(_config.Birthday, out int bd, out int bm)
+            && today.Day == bd && today.Month == bm && SpecialGreeting()) return;
         _bubble.Show("Configurações salvas! ✅", 3);
     }
 
@@ -583,10 +590,19 @@ public partial class Main : Node2D
     /// <summary>Puts the current config to work (the reminders, the system monitor and a few timers read it live).</summary>
     void ApplyConfig()
     {
-        _spider.SetPixelScale(_config.Scale);
-        _spider.SetFur(FurColors.Find(_config.FurColor));
-        UpdateTrayIcon();
-        _webs.PixelScale = _bugs.PixelScale = _notes.PixelScale = _config.Scale;
+        // Recolouring the sprites and the tray icon isn't free: only when the colour or the size changed.
+        if (_config.FurColor != _appliedFur)
+        {
+            _appliedFur = _config.FurColor;
+            _spider.SetFur(FurColors.Find(_config.FurColor));
+            UpdateTrayIcon();
+        }
+        if (_config.Scale != _appliedScale)
+        {
+            _appliedScale = _config.Scale;
+            _spider.SetPixelScale(_config.Scale);
+            _webs.PixelScale = _bugs.PixelScale = _notes.PixelScale = _config.Scale;
+        }
         _brain.AutoWebs = _config.AutoWebs;
         _brain.MaxWebs = _config.MaxWebs;
         if (_bugs.Enabled != _config.Bugs)

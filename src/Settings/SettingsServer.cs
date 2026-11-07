@@ -38,6 +38,8 @@ public sealed class SettingsServer : IDisposable
     /// <summary>Reloads config.json from disk; returns its error, if any.</summary>
     public required Func<string?> Reload { get; init; }
     public required Action OpenConfigFile { get; init; }
+    /// <summary>Fingerprint of config.json on disk (see <see cref="Config.FileStamp"/>).</summary>
+    public required Func<string> Stamp { get; init; }
     public Action<string>? Log { get; init; }
 
     public int Port { get; private set; }
@@ -153,6 +155,12 @@ public sealed class SettingsServer : IDisposable
             }
             else await Send(res, 404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("não encontrado"));
         }
+        catch (JsonException e)
+        {
+            // A body that isn't JSON at all: the request's fault, not the server's.
+            try { await Json(res, 400, Error($"JSON inválido: {e.Message}")); }
+            catch { /* the connection is gone */ }
+        }
         catch (Exception e)
         {
             Log?.Invoke($"configurações: {req.HttpMethod} {req.Url?.AbsolutePath}: {e.Message}");
@@ -177,14 +185,14 @@ public sealed class SettingsServer : IDisposable
                 await Json(res, 200, new JsonObject { ["ok"] = true });
                 break;
             case ("GET", "/api/state"):
-                await Json(res, 200, await OnMain(State));
+                await Json(res, 200, await StateAsync());
                 break;
             case ("PUT", "/api/state"):
                 await SaveState(await Body(req), res);
                 break;
             case ("POST", "/api/reload"):
                 var error = await OnMain(Reload);
-                var state = await OnMain(State);
+                var state = await StateAsync();
                 if (error != null) state["reload_error"] = error;
                 await Json(res, 200, state);
                 break;
@@ -216,9 +224,25 @@ public sealed class SettingsServer : IDisposable
             await Json(res, 400, Error($"configuração inválida: {e.Message}"));
             return;
         }
+        // The page sends the fingerprint of the file it was loaded from: if the file changed since (edited by hand),
+        // saving would put the page's older copy over those edits.
+        var sent = body["stamp"] is JsonValue sv && sv.TryGetValue<string>(out var st) ? st : null;
+        if (sent != await OnMain(Stamp))
+        {
+            await Json(res, 409, Error("o config.json foi alterado fora desta página. Clique em \"Recarregar do arquivo\" (as alterações não salvas daqui se perdem) e faça de novo"));
+            return;
+        }
         bool? autostart = body["autostart"] is JsonValue a && a.TryGetValue<bool>(out bool on) ? on : null;
         await OnMain(() => Save(config, autostart));
-        await Json(res, 200, await OnMain(State));
+        await Json(res, 200, await StateAsync());
+    }
+
+    /// <summary>The app's state plus the fingerprint of config.json, which the page sends back when saving.</summary>
+    async Task<JsonObject> StateAsync()
+    {
+        var state = await OnMain(State);
+        state["config_stamp"] = await OnMain(Stamp);
+        return state;
     }
 
     // ------------------------------------------------------------------ plumbing

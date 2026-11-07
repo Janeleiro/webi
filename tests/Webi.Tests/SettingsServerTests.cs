@@ -19,6 +19,7 @@ public sealed class SettingsServerTests : IDisposable
     Config _config = new();
     bool? _autostart;
     int _opened;
+    string _stamp = "abc";
 
     public SettingsServerTests()
     {
@@ -28,6 +29,7 @@ public sealed class SettingsServerTests : IDisposable
             Save = (c, a) => { _config = c; _autostart = a; },
             Reload = () => null,
             OpenConfigFile = () => _opened++,
+            Stamp = () => _stamp,
         };
         Assert.True(_server.Start());
         // The "main thread".
@@ -86,7 +88,7 @@ public sealed class SettingsServerTests : IDisposable
     [Fact]
     public async Task Saving_validates_the_config()
     {
-        var body = """{ "config": { "water_minutes": 0, "sounds": true, "max_webs": 999, "fur_color": "xadrez" }, "autostart": true }""";
+        var body = """{ "config": { "water_minutes": 0, "sounds": true, "max_webs": 999, "fur_color": "xadrez" }, "autostart": true, "stamp": "abc" }""";
         var res = await _http.SendAsync(Api(HttpMethod.Put, "/api/state", body));
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         Assert.Equal(1, _config.WaterMinutes);
@@ -95,7 +97,7 @@ public sealed class SettingsServerTests : IDisposable
         Assert.True(_config.Sounds);
         Assert.True(_autostart);
 
-        var bad = await _http.SendAsync(Api(HttpMethod.Put, "/api/state", """{ "config": { "scale": "grande" } }"""));
+        var bad = await _http.SendAsync(Api(HttpMethod.Put, "/api/state", """{ "config": { "scale": "grande" }, "stamp": "abc" }"""));
         Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
         var missing = await _http.SendAsync(Api(HttpMethod.Put, "/api/state", """{ "autostart": false }"""));
         Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
@@ -119,6 +121,31 @@ public sealed class SettingsServerTests : IDisposable
         var res = await _http.SendAsync(Api(HttpMethod.Post, "/api/open-config"));
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         Assert.Equal(1, _opened);
+    }
+
+    [Fact]
+    public async Task Saving_is_refused_when_config_json_changed_since_the_page_loaded()
+    {
+        var state = JsonNode.Parse(await (await _http.SendAsync(Api(HttpMethod.Get, "/api/state"))).Content.ReadAsStringAsync())!;
+        Assert.Equal("abc", (string)state["config_stamp"]!);
+
+        _stamp = "editado-a-mao";
+        var res = await _http.SendAsync(Api(HttpMethod.Put, "/api/state", """{ "config": { "sounds": true }, "stamp": "abc" }"""));
+        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+        Assert.Contains("Recarregar do arquivo", await res.Content.ReadAsStringAsync());
+        Assert.False(_config.Sounds);
+
+        var none = await _http.SendAsync(Api(HttpMethod.Put, "/api/state", """{ "config": { "sounds": true } }"""));
+        Assert.Equal(HttpStatusCode.Conflict, none.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_body_that_is_not_json_is_a_bad_request()
+    {
+        var res = await _http.SendAsync(Api(HttpMethod.Put, "/api/state", """{ "config": {"""));
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        var body = JsonNode.Parse(await res.Content.ReadAsStringAsync())!;
+        Assert.StartsWith("JSON inválido", (string)body["error"]!);
     }
 
     public void Dispose()

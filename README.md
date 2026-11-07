@@ -226,7 +226,8 @@ aro é identificado pela posição (anel externo do olho), porque compartilha as
 Pelo menu: **⚙ Configurações...** abre uma página no navegador, servida pela própria Webi só em `localhost`
 (`src/Settings/`). Cada chamada leva um token aleatório gerado ao abrir pelo menu, então outros sites abertos no
 navegador não mexem nas configurações, e o servidor se desliga sozinho depois de 15 min sem uso. Salvar aplica na
-hora. A página também tem as **Novidades** de cada versão (`src/Changelog.cs`).
+hora. Se o `config.json` for editado à mão com a página aberta, ela recusa salvar e pede para recarregar do
+arquivo, para não desfazer a edição. A página também tem as **Novidades** de cada versão (`src/Changelog.cs`).
 
 Tudo fica em `%APPDATA%\Godot\app_userdata\Webi\config.json`, que dá para editar à mão (em Configurações >
 Avançado: *Abrir config.json* e *Recarregar do arquivo*):
