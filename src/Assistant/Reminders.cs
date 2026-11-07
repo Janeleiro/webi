@@ -9,8 +9,12 @@ public enum ReminderKind { Water, Break, Pomodoro }
 /// screen and shouts <see cref="Title"/> in a huge bubble, with <see cref="Detail"/> underneath.
 /// Other notices go in the regular speech bubble. <see cref="Snooze"/> is the reminder that the shout bubble
 /// offers to postpone, if any.
+/// A shout can wait in a queue while Webi is quiet (meeting, do not disturb): <see cref="Key"/> keeps only the
+/// newest notice of each kind there, and <see cref="Recheck"/> is asked again right before shouting; it returns
+/// the up-to-date notice, or null when it no longer applies (the CPU already cooled down, etc.).
 /// </summary>
-public readonly record struct Notice(string Title, string Detail, bool Shout = true, bool Happy = false, ReminderKind? Snooze = null)
+public readonly record struct Notice(string Title, string Detail, bool Shout = true, bool Happy = false, ReminderKind? Snooze = null,
+    string? Key = null, Func<Notice?>? Recheck = null)
 {
     public string Plain => $"{Title} {Detail}".Trim();
 }

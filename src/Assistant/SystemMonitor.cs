@@ -46,7 +46,7 @@ public sealed class SystemMonitor
         {
             _wasHot = true;
             _lastCpuAlert = now;
-            Alert?.Invoke(SystemAlert.CpuHot, new Notice("TÁ QUENTE AQUI!!! 🔥", $"A CPU tá em {Cpu:0}% faz um tempinho."));
+            Alert?.Invoke(SystemAlert.CpuHot, CpuHotNotice()!.Value);
         }
         else if (_wasHot && Cpu < _config.CpuAlertPercent - 25)
         {
@@ -54,10 +54,10 @@ public sealed class SystemMonitor
             Alert?.Invoke(SystemAlert.CpuCalm, new Notice("", "Ahh, esfriou. Bem melhor.", Shout: false, Happy: true));
         }
 
-        if (Memory >= 92 && now - _lastMemAlert > TimeSpan.FromMinutes(15))
+        if (Memory >= MemoryAlertPercent && now - _lastMemAlert > TimeSpan.FromMinutes(15))
         {
             _lastMemAlert = now;
-            Alert?.Invoke(SystemAlert.MemoryHigh, new Notice("MEMÓRIA LOTADA!!! 🧠", $"Tá em {Memory:0}%... minha teia não aguenta tanta coisa!"));
+            Alert?.Invoke(SystemAlert.MemoryHigh, MemoryNotice()!.Value);
         }
 
         if (HasBattery)
@@ -65,13 +65,30 @@ public sealed class SystemMonitor
             if (!Charging && Battery <= _config.BatteryAlertPercent && now - _lastBatteryAlert > TimeSpan.FromMinutes(15))
             {
                 _lastBatteryAlert = now;
-                Alert?.Invoke(SystemAlert.BatteryLow, new Notice("BATERIA FRACA!!! 🔋", $"Só {Battery}%! Pluga o carregador, por favor?"));
+                Alert?.Invoke(SystemAlert.BatteryLow, BatteryNotice()!.Value);
             }
             if (Charging && !_wasCharging)
                 Alert?.Invoke(SystemAlert.Charging, new Notice("", "Carregando! Valeu! ⚡", Shout: false, Happy: true));
             _wasCharging = Charging;
         }
     }
+
+    // The alerts are rebuilt by their own Recheck right before being shouted (they may have waited in the queue
+    // through a meeting): fresh numbers, or null once the problem is gone. Thresholds have some slack so a
+    // reading that hovers around the limit doesn't drop the alert.
+    const double MemoryAlertPercent = 92;
+
+    Notice? CpuHotNotice() => _wasHot && _config.SystemMonitor
+        ? new Notice("TÁ QUENTE AQUI!!! 🔥", $"A CPU tá em {Cpu:0}% faz um tempinho.", Key: "cpu", Recheck: CpuHotNotice)
+        : null;
+
+    Notice? MemoryNotice() => Memory >= MemoryAlertPercent - 5 && _config.SystemMonitor
+        ? new Notice("MEMÓRIA LOTADA!!! 🧠", $"Tá em {Memory:0}%... minha teia não aguenta tanta coisa!", Key: "memory", Recheck: MemoryNotice)
+        : null;
+
+    Notice? BatteryNotice() => HasBattery && !Charging && Battery <= _config.BatteryAlertPercent + 5 && _config.SystemMonitor
+        ? new Notice("BATERIA FRACA!!! 🔋", $"Só {Battery}%! Pluga o carregador, por favor?", Key: "battery", Recheck: BatteryNotice)
+        : null;
 
     void Sample()
     {

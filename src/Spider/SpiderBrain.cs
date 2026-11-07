@@ -469,7 +469,30 @@ public sealed class SpiderBrain
     {
         // Already waiting (fired again while she was quiet, e.g. a long meeting): one shout is enough.
         if (_notices.Any(n => n == notice || (notice.Snooze != null && n.Snooze == notice.Snooze))) return;
+        // Same kind of alert already waiting: keep its place in the line but with the newer content.
+        if (notice.Key != null && _notices.Any(n => n.Key == notice.Key))
+        {
+            var kept = _notices.Select(n => n.Key == notice.Key ? notice : n).ToList();
+            _notices.Clear();
+            foreach (var n in kept) _notices.Enqueue(n);
+            return;
+        }
         _notices.Enqueue(notice);
+    }
+
+    /// <summary>
+    /// Next queued alert that still applies, refreshed. Ones that went stale while she was quiet (the CPU
+    /// cooled down, the charger got plugged in) are dropped without a word.
+    /// </summary>
+    Notice? NextNotice()
+    {
+        while (_notices.Count > 0)
+        {
+            var n = _notices.Dequeue();
+            if (n.Recheck == null) return n;
+            if (n.Recheck() is { } fresh) return fresh;
+        }
+        return null;
     }
 
     /// <summary>The alert was clicked away: stop shouting and go back to normal.</summary>
@@ -519,9 +542,9 @@ public sealed class SpiderBrain
     /// <summary>Runs alerts and the giant web. Returns true while they own the spider.</summary>
     bool TickStage(float dt, double idleSeconds)
     {
-        if (_stage is Stage.None or Stage.InGiantWeb && _notices.Count > 0 && !Quiet)
+        if (_stage is Stage.None or Stage.InGiantWeb && !Quiet && NextNotice() is { } next)
         {
-            _notice = _notices.Dequeue();
+            _notice = next;
             _forGiant = false;
             EndTask();
             var work = WorkAreaAt?.Invoke(_spider.BodyCenter) ?? new Rect2(_spider.BodyCenter, Vector2.One);
