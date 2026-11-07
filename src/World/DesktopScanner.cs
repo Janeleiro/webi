@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
+using Webi.Assistant;
 using Webi.Win32;
 
 namespace Webi.World;
@@ -14,9 +15,6 @@ public sealed class DesktopScanner
         "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow",
         "Windows.UI.Core.CoreWindow", "XamlExplorerHostIslandWindow", "TopLevelWindowForOverflowXamlIsland",
     };
-
-    /// <summary>Remote desktop clients: even in fullscreen the spider stays and walks over them.</summary>
-    static readonly HashSet<string> RemoteDesktopProcesses = new(StringComparer.OrdinalIgnoreCase) { "mstsc", "msrdc" };
 
     readonly Overlay _overlay;
     readonly List<DesktopWindow> _result = new();
@@ -81,7 +79,8 @@ public sealed class DesktopScanner
     static bool HasCaption(IntPtr hwnd) =>
         (Native.GetWindowLongPtr(hwnd, Native.GWL_STYLE).ToInt64() & Native.WS_CAPTION) == Native.WS_CAPTION;
 
-    bool IsRemoteDesktop(IntPtr hwnd) => RemoteDesktopProcesses.Contains(_processNames.Of(hwnd));
+    /// <summary>Remote desktop clients: even in fullscreen the spider stays and walks over them.</summary>
+    bool IsRemoteDesktop(IntPtr hwnd) => AppCatalog.RemoteClients.Contains(_processNames.Of(hwnd));
 
     /// <summary>The monitor (world rect) fully covered by the foreground app (game, video, presentation), if any.</summary>
     public Rect2? FullscreenMonitor()

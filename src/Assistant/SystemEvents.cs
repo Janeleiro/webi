@@ -11,16 +11,14 @@ using Webi.Win32;
 namespace Webi.Assistant;
 
 /// <summary>
-/// Things happening on the PC that Webi reacts to: a screenshot (Print Screen or Win+Shift+S), a USB drive
-/// plugged in or out, the internet dropping or coming back, the sound being muted. The keys are polled every
-/// frame; drives, network and sound are checked in the background every few seconds. Nothing is stored.
+/// Things happening on the PC that Webi reacts to: a USB drive plugged in or out, the internet dropping or coming
+/// back, the sound being muted. Checked in the background every few seconds. Nothing is stored.
+/// Screenshots get no reaction on purpose: the line would show up in the picture, or replace the line that was
+/// the reason for taking it.
 /// </summary>
 public sealed class SystemEvents
 {
-    const int VK_SNAPSHOT = 0x2C, VK_SHIFT = 0x10, VK_LWIN = 0x5B, VK_RWIN = 0x5C, VK_S = 0x53;
-
     readonly RandomNumberGenerator _rng = new();
-    bool _printWasDown, _snipWasDown;
     double _probeTimer = 3;
     /// <summary>The drives / network / sound check running in the background (they can take tens of ms).</summary>
     Task<(HashSet<string> drives, bool online, bool? muted)>? _probe;
@@ -43,14 +41,6 @@ public sealed class SystemEvents
             _online = _muted = _pendingOnline = null;
             return;
         }
-
-        // Keys are read every frame so a quick press isn't missed.
-        bool print = Native.IsKeyDown(VK_SNAPSHOT);
-        bool snip = Native.IsKeyDown(VK_S) && Native.IsKeyDown(VK_SHIFT) && (Native.IsKeyDown(VK_LWIN) || Native.IsKeyDown(VK_RWIN));
-        if ((print && !_printWasDown) || (snip && !_snipWasDown))
-            Raise(Pick(Lines.Screenshot), Face.Happy, Gesture.Wave);
-        _printWasDown = print;
-        _snipWasDown = snip;
 
         if (_probe is { IsCompleted: true } done)
         {

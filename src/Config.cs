@@ -46,7 +46,7 @@ public sealed class Config
     public bool Sounds { get; set; } = false;
     /// <summary>Flies show up now and then for Webi to hunt.</summary>
     public bool Bugs { get; set; } = true;
-    /// <summary>Questions with buttons, spider facts and reactions to PC events (print screen, USB, internet, mute).</summary>
+    /// <summary>Questions with buttons, spider facts and reactions to PC events (USB, internet, mute).</summary>
     public bool SmallTalk { get; set; } = true;
     /// <summary>Hats and lines for holidays (Halloween, Christmas, festa junina...) and the birthday.</summary>
     public bool Seasonal { get; set; } = true;

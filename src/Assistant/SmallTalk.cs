@@ -13,7 +13,7 @@ public sealed record Choice(string Label, Reaction Reply, Action? Effect = null)
 public sealed record Question(string Text, Face Face, Choice[] Choices);
 
 /// <summary>
-/// Webi starting a conversation now and then (every 15-30 min of use): questions with buttons, spider facts,
+/// Webi starting a conversation now and then (every 15-30 min of use, 5-10 inside a remote desktop): questions with buttons, spider facts,
 /// lines about the special day, the "8 hours at the PC" nudge and the offer of the day's summary.
 /// </summary>
 public sealed class SmallTalk
@@ -29,6 +29,11 @@ public sealed class SmallTalk
     /// <summary>The user's birthday ("dd/mm"), for the special-day lines.</summary>
     public string Birthday { get; set; } = "";
     public bool Seasonal { get; set; } = true;
+    /// <summary>
+    /// The user is inside a remote desktop: Webi can't see the apps there, so she only has the few remote desktop
+    /// lines to comment with, and starts a conversation more often instead (every 5-10 min of use).
+    /// </summary>
+    public bool Remote { get; set; }
 
     public event Action<Question>? Ask;
     public event Action<Reaction>? Say;
@@ -48,6 +53,7 @@ public sealed class SmallTalk
     {
         _untilNext -= activeDt;
         _checkTimer -= activeDt;
+        if (Remote && _untilNext > RemoteMaxMinutes * 60) _untilNext = NextWait();
         if (!Enabled || !canTalk || _checkTimer > 0) return;
         _checkTimer = 5;
 
@@ -72,7 +78,7 @@ public sealed class SmallTalk
         }
 
         if (_untilNext > 0) return;
-        _untilNext = _rng.RandfRange(15, 30) * 60;
+        _untilNext = NextWait();
 
         var special = Seasonal ? Seasons.Today(now, Birthday) : null;
         float roll = _rng.Randf();
@@ -83,6 +89,11 @@ public sealed class SmallTalk
         else
             Say?.Invoke(new(Pick(Lines.Facts), Face.Normal, Gesture.Groom));
     }
+
+    const float RemoteMinMinutes = 5, RemoteMaxMinutes = 10;
+
+    /// <summary>Seconds of use until the next conversation.</summary>
+    double NextWait() => (Remote ? _rng.RandfRange(RemoteMinMinutes, RemoteMaxMinutes) : _rng.RandfRange(15, 30)) * 60;
 
     /// <summary>A question that fits the time of day, not one asked recently.</summary>
     Question PickQuestion(DateTime now) => _recent.Pick(Questions(now).ToList(), q => q.Text);

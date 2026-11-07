@@ -897,6 +897,7 @@ public partial class Main : Node2D
         _monitor.Tick(delta);
         bool canTalk = !_hidden && !_brain.Asleep && !_brain.Busy && !_shout.Visible && !_dnd.Active && !_bubble.HasChoices;
         _apps.Tick(delta, idle, canTalk);
+        _talk.Remote = _apps.Current?.Group == AppGroup.Remote;
         _talk.Tick(idle < 120 ? delta : 0, System.DateTime.Now, canTalk && !_apps.Quiet && !_bubble.Visible);
         _events.Tick(delta);
         _dnd.Tick(delta);

@@ -326,12 +326,6 @@ public static class Lines
 
     // ------------------------------------------------------------------ PC events
 
-    public static readonly string[] Screenshot =
-    {
-        "Tirou foto minha? Saí bem? 📸", "Xis! 📸 Pega meu lado bom.", "Print! Vou aparecer na foto? 🕷️",
-        "Espera, eu não tava pronta! 📸", "Manda essa foto pra mim depois!", "Sorria, é print! 😁",
-    };
-
     public static readonly string[] UsbIn =
     {
         "Pendrive novo! O que tem aí dentro? 👀", "Chegou visita na porta USB! 🔌", "Opa, um pendrive! Posso morar nele?",

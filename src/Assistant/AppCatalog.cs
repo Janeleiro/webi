@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Webi.Spider;
 
 namespace Webi.Assistant;
@@ -8,7 +9,7 @@ namespace Webi.Assistant;
 /// <summary>Kinds of apps/sites. Every group has its own lines; some apps also have specific ones.</summary>
 public enum AppGroup
 {
-    Social, Video, Music, Chat, Meeting, Code, Office, Email, Games, Design, Shopping, AiChat, Learning, Files, Streaming,
+    Social, Video, Music, Chat, Meeting, Code, Office, Email, Games, Design, Shopping, AiChat, Learning, Files, Streaming, Remote,
 }
 
 /// <summary>
@@ -27,6 +28,15 @@ public static class AppCatalog
     {
         "chrome", "msedge", "firefox", "brave", "opera", "opera_gx", "vivaldi", "arc", "zen", "waterfox", "librewolf",
     };
+
+    /// <summary>
+    /// Remote desktop clients (mstsc, Windows App / AVD). What runs inside the session is just a picture for
+    /// this PC, so only their window title can tell what is in there.
+    /// </summary>
+    public static readonly HashSet<string> RemoteClients = new(StringComparer.OrdinalIgnoreCase) { "mstsc", "msrdc" };
+
+    /// <summary>Title endings that RemoteApp windows get ("Livro1 - Excel (Remoto)").</summary>
+    static readonly string[] RemoteAppSuffixes = { "(Remoto)", "(Remote)" };
 
     /// <summary>Apps where Webi keeps quiet: no comments, no giant web, alerts wait.</summary>
     public static bool IsQuiet(AppGroup group) => group is AppGroup.Meeting or AppGroup.Streaming;
@@ -137,6 +147,15 @@ public static class AppCatalog
             "Pasta 'Nova pasta (7)'... organiza isso, vai.",
             "arquivo_final_FINAL_agora_vai.docx? Conheço bem.",
             "Organizando pastas? Eu organizo cantos de parede.",
+        },
+        [AppGroup.Remote] = new[]
+        {
+            "Trabalhando lá na máquina remota? Daqui eu só vejo a janela, mas tô torcendo. 🕷️",
+            "Área de trabalho dentro da área de trabalho... é teia dentro de teia!",
+            "Se a conexão travar, não fui eu que enrosquei o cabo. Juro.",
+            "Mandando comandos pra longe! Eu mando vibrações pelo fio, funciona parecido.",
+            "Lá dentro não tem aranha, né? Então eu fico aqui fora fazendo companhia.",
+            "Conexão remota firme? Se cair, respira fundo e reconecta. Fio partido a gente tece de novo.",
         },
     };
 
@@ -511,6 +530,9 @@ public static class AppCatalog
         new("courses", "Cursos", AppGroup.Learning, Array.Empty<string>(),
             new[] { "Coursera", "Udemy", "Khan Academy", "Alura", "edX", "Brilliant" }, Array.Empty<string>()),
 
+        // Remote desktop: whatever runs inside, when the window title doesn't tell (see Identify)
+        new("remote", "Área de Trabalho Remota", AppGroup.Remote, RemoteClients.ToArray(), Array.Empty<string>(), Array.Empty<string>()),
+
         // Files
         new("explorer", "Explorador de Arquivos", AppGroup.Files, new[] { "explorer" }, Array.Empty<string>(), Array.Empty<string>()),
     };
@@ -521,6 +543,7 @@ public static class AppCatalog
         process = process.ToLowerInvariant();
         bool browser = Browsers.Contains(process);
         bool storeApp = process is "applicationframehost";
+        if (RemoteClients.Contains(process)) return IdentifyRemote(title);
 
         // A real process match wins (desktop apps); in browsers and Store frames the title tells.
         if (!browser && !storeApp)
@@ -532,7 +555,48 @@ public static class AppCatalog
             if (process is not ("javaw" or "java")) return null;
         }
 
-        // The longest matching hint wins ("YouTube Music" over "YouTube").
+        return ByTitle(title);
+    }
+
+    /// <summary>
+    /// A remote desktop window. Only a RemoteApp's title names the app inside ("Livro1 - Excel (Remoto)"); any other
+    /// title is a whole desktop's, named after the machine or the workspace ("10.0.0.5 - Conexão de Área de Trabalho
+    /// Remota", "TEAMS-HOST01"), which could happen to contain a hint, so it isn't matched.
+    /// A RemoteApp's title is the app's own: the app is its last part ("Planilha Teams - Excel" is Excel, whatever the
+    /// document is called), except in a browser, where the tab before it tells (as in <see cref="Identify"/>).
+    /// </summary>
+    static AppInfo IdentifyRemote(string title)
+    {
+        title = title.Trim();
+        var suffix = RemoteAppSuffixes.FirstOrDefault(x => title.EndsWith(x, StringComparison.OrdinalIgnoreCase));
+        if (suffix == null) return Remote.Value;
+        title = title[..^suffix.Length].Replace("\u200b", "").TrimEnd(); // Edge writes "Microsoft\u200bEdge"
+        int dash = title.LastIndexOf(" - ", StringComparison.Ordinal);
+        var last = dash >= 0 ? title[(dash + 3)..].Trim() : title;
+        if (BrowserTitles.Any(b => last.Equals(b, StringComparison.OrdinalIgnoreCase)))
+            return ByTitle(title[..Math.Max(dash, 0)]) ?? Remote.Value;
+        // Several names in it: the longest one is the most specific.
+        return AppNames.Value.Where(n => n.pattern.IsMatch(last)).OrderByDescending(n => n.app.Name.Length)
+            .Select(n => n.app).FirstOrDefault() ?? Remote.Value;
+    }
+
+    /// <summary>How browsers end their window titles ("Gatinhos - YouTube - Google Chrome").</summary>
+    static readonly string[] BrowserTitles =
+    {
+        "Google Chrome", "Microsoft Edge", "Mozilla Firefox", "Firefox", "Brave", "Opera", "Vivaldi", "Arc", "Zen Browser",
+    };
+
+    static readonly Lazy<AppInfo> Remote = new(() => Apps.First(a => a.Group == AppGroup.Remote));
+
+    /// <summary>Each app's name as a whole word ("Word", not in "Password"), built once.</summary>
+    static readonly Lazy<(AppInfo app, Regex pattern)[]> AppNames = new(() => Apps
+        .Where(a => a.Group != AppGroup.Remote && a.Name.Length > 2)
+        .Select(a => (a, new Regex($@"(?<!\w){Regex.Escape(a.Name)}(?!\w)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)))
+        .ToArray());
+
+    /// <summary>The app whose longest title hint is in the title ("YouTube Music" over "YouTube").</summary>
+    static AppInfo? ByTitle(string title)
+    {
         AppInfo? best = null;
         int bestLength = 0;
         foreach (var app in Apps)
@@ -551,7 +615,7 @@ public static class AppCatalog
         AppGroup.Music or AppGroup.Games => (Face.Happy, Gesture.Dance),
         AppGroup.Social or AppGroup.Chat => (Face.Happy, Gesture.Wave),
         AppGroup.Code or AppGroup.Design => (Face.Normal, Gesture.Groom),
-        AppGroup.Office or AppGroup.Email or AppGroup.Files => (Face.Normal, Gesture.Tap),
+        AppGroup.Office or AppGroup.Email or AppGroup.Files or AppGroup.Remote => (Face.Normal, Gesture.Tap),
         AppGroup.Shopping => (Face.Surprised, Gesture.Tap),
         _ => (Face.Happy, Gesture.None),
     };
