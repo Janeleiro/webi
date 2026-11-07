@@ -53,7 +53,7 @@ public sealed class Config
     /// <summary>The user's birthday as "dd/mm" (empty = not set).</summary>
     public string Birthday { get; set; } = "";
 
-    static readonly JsonSerializerOptions Json = new()
+    public static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -69,6 +69,16 @@ public sealed class Config
     [JsonIgnore]
     public string? LoadError { get; private set; }
 
+    public string ToJson() => JsonSerializer.Serialize(this, Json);
+
+    /// <summary>Reads a config (from the settings page, for instance) and validates it. Throws on invalid JSON.</summary>
+    public static Config FromJson(string json)
+    {
+        var config = JsonSerializer.Deserialize<Config>(json, Json) ?? new Config();
+        config.Validate();
+        return config;
+    }
+
     public static Config Load()
     {
         if (!File.Exists(FilePath))
@@ -79,9 +89,7 @@ public sealed class Config
         }
         try
         {
-            var config = JsonSerializer.Deserialize<Config>(File.ReadAllText(FilePath), Json) ?? new Config();
-            config.Validate();
-            return config;
+            return FromJson(File.ReadAllText(FilePath));
         }
         catch (Exception e)
         {
@@ -104,6 +112,7 @@ public sealed class Config
         CpuAlertPercent = Math.Clamp(CpuAlertPercent, 30, 100);
         BatteryAlertPercent = Math.Clamp(BatteryAlertPercent, 1, 99);
         SleepAfterIdleMinutes = Math.Clamp(SleepAfterIdleMinutes, 1, 24 * 60);
+        FurColor = Spider.FurColors.Find(FurColor ?? "").Id;
         Birthday = Assistant.Seasons.TryParseBirthday(Birthday ?? "", out int d, out int m) ? $"{d:00}/{m:00}" : "";
     }
 
@@ -112,7 +121,7 @@ public sealed class Config
         if (LoadError != null) return;
         try
         {
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, Json));
+            File.WriteAllText(FilePath, ToJson());
         }
         catch (Exception e)
         {

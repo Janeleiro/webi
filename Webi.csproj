@@ -9,5 +9,7 @@
   <ItemGroup>
     <!-- The unit tests are their own project (tests/Webi.Tests). -->
     <Compile Remove="tests/**" />
+    <!-- The settings page, served by src/Settings/SettingsServer.cs (travels inside the .dll, so inside the exe). -->
+    <EmbeddedResource Include="src/Settings/settings.html" LogicalName="Webi.settings.html" />
   </ItemGroup>
 </Project>

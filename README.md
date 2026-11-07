@@ -11,14 +11,15 @@ que já traz tudo dentro: não precisa instalar nada, nem Godot, nem .NET. Funci
 
 - O exe não é assinado digitalmente, então o Windows pode mostrar "O Windows protegeu o computador".
   Clique em **Mais informações → Executar assim mesmo**.
+- As configurações ficam numa página no navegador: botão direito na aranha (ou na bandeja) → **⚙ Configurações...**.
 - Configurações e estado ficam em `%APPDATA%\Godot\app_userdata\Webi\`. Para desinstalar, desligue
-  "Iniciar com o Windows" no menu, saia da Webi e apague o exe e essa pasta.
+  "Iniciar com o Windows" nas configurações, saia da Webi e apague o exe e essa pasta.
 - A versão aparece no fim do menu (botão direito na aranha ou na bandeja).
 
 ## Rodar (desenvolvimento)
 
 - `webi.bat`: inicia direto, sem editor (aponta para o Godot instalado pelo winget).
-- **Iniciar com o Windows:** opção no menu (botão direito ou bandeja). Ela grava a entrada `Webi` em
+- **Iniciar com o Windows:** opção em ⚙ Configurações > Geral. Ela grava a entrada `Webi` em
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, sem precisar de administrador, e o app mantém o
   caminho atualizado a cada início.
 - Só abre uma Webi por vez: abrir de novo (pelo autostart e à mão, por exemplo) não cria uma segunda aranha.
@@ -35,7 +36,8 @@ dotnet test tests\Webi.Tests
 
 Testes xUnit da lógica que não depende do motor: config, lembretes e adiamento, identificação de apps,
 bordas das janelas (`SurfaceMap`), leitura dos timers, calendário (Páscoa, feriados, aniversário), amizade
-e resumo do dia. O projeto de testes fica fora do build do Godot (`.gdignore` e
+e resumo do dia, o servidor de configurações (sobe de verdade em localhost: token, origem, salvar) e o
+changelog. O projeto de testes fica fora do build do Godot (`.gdignore` e
 `Compile Remove` no `Webi.csproj`).
 
 ## Gerar o .exe
@@ -59,7 +61,8 @@ versão no menu e a imprime no log ao iniciar.
 
 Para publicar uma versão:
 
-1. Atualize `config/version` no `project.godot` e faça o commit.
+1. Atualize `config/version` no `project.godot` e acrescente a versão no topo de `src/Changelog.cs` (as
+   "Novidades" da página de configurações; um teste confere que as duas batem). Faça o commit.
 2. Gere o exe (seção acima) e teste.
 3. Crie a tag: `git tag v0.1.0` e `git push origin v0.1.0`.
 4. No GitHub, crie o release a partir da tag e anexe o `build\Webi.exe`, renomeado para `webi_X.Y.Z.exe`.
@@ -78,8 +81,8 @@ Para publicar uma versão:
   centro do monitor onde está o cursor, tece uma teia orbital cobrindo o monitor inteiro e dorme pendurada
   no meio. Mexer o mouse só a acorda. A teia só sai **chacoalhando o mouse** com força (muito deslocamento
   e várias idas e vindas em menos de 1 s); aí os fios se rompem e caem e ela despenca junto.
-- **Menu:** "Fazer uma teia", "Limpar teias", "Tecer teias por conta própria" e "Teia gigante com o mouse
-  parado" (desligado / 2 / 5 / 10 / 15 / 30 min). O config tem `auto_webs`, `max_webs` e `screen_web_minutes`. As teias não são salvas entre execuções.
+- **Menu:** "Fazer uma teia" e "Limpar teias". Em ⚙ Configurações > Teias e moscas: tecer por conta própria,
+  máximo de teias e minutos de mouse parado até a teia gigante (0 = nunca); no config, `auto_webs`, `max_webs` e `screen_web_minutes`. As teias não são salvas entre execuções.
 
 ## Alertas
 
@@ -92,7 +95,9 @@ suas ações usam o balão normal. Clicar num balão o fecha. Os lembretes de á
 
 **Não perturbe:** com o "Não perturbe"/Assistente de foco do Windows ligado, em modo de apresentação ou no
 período de silêncio logo após instalar o Windows, ela segura os alertas gritados, não comenta os apps e não
-tece a teia gigante, como no modo silencioso das reuniões. O "Não perturbe" é lido de um estado interno
+tece a teia gigante, como no modo silencioso das reuniões. Os alertas de CPU, memória e bateria que esperam
+na fila não se acumulam (fica o mais recente de cada tipo) e são conferidos de novo na hora de gritar: se o
+problema já passou, o alerta é descartado; senão sai com o número atual. O "Não perturbe" é lido de um estado interno
 (WNF) do Windows, que não é documentado: se a leitura falhar, vale só a API oficial
 (`SHQueryUserNotificationState`). Com `WEBI_DEBUG=1`, o log mostra `dnd=` e o que foi lido.
 
@@ -123,7 +128,7 @@ um alerta.
 - **Moscas:** de tempos em tempos (3-8 min) aparece uma mosca em pixel art que voa pela tela, pousa nas
   bordas das janelas e vai embora depois de uns 2 min. A Webi chega perto, faz o **bote** (agachada, patas da
   frente erguidas, abdômen rebolando) e pula nela. Às vezes a mosca percebe e foge. Mosca que voa numa teia de
-  canto fica presa: a Webi vai até a teia e come (se ela não vier em uns 3 min, a mosca se solta e vai embora). Menu "🪰 Moscas para caçar" (config `bugs`).
+  canto fica presa: a Webi vai até a teia e come (se ela não vier em uns 3 min, a mosca se solta e vai embora). Liga e desliga em ⚙ Configurações > Teias e moscas (config `bugs`).
 - **Caçar o cursor:** com o mouse parado perto dela, às vezes ela faz o bote e pula nele. Se o cursor se mexer
   antes, ela disfarça limpando as patinhas.
 - **Carona no mouse:** com o cursor parado no ar acima dela (de vez em quando, a cada 2–5 min no máximo), ela
@@ -138,19 +143,22 @@ um alerta.
 
 ## Datas especiais
 
-Menu "🎃 Datas especiais" (config `seasonal`): chapéu de bruxa na semana do Halloween, gorro de Papai Noel em
-dezembro, chapéu de festa no Ano Novo, no Carnaval e no **seu aniversário** ("🎂 Meu aniversário...", config
+"🎃 Datas especiais" nas configurações (config `seasonal`): chapéu de bruxa na semana do Halloween, gorro de Papai Noel em
+dezembro, chapéu de festa no Ano Novo, no Carnaval e no **seu aniversário** ("🎂 Meu aniversário" nas configurações, config
 `birthday` como `dd/mm`), chapéu de palha na festa junina, orelhas na Páscoa e coração no Dia dos Namorados.
 No dia em si ela cumprimenta uma vez (feriados nacionais, sexta e segunda também) e solta falas temáticas.
 Carnaval e Páscoa são calculados. Tudo em `src/Assistant/Seasons.cs`.
 
 ## Conversa e amizade
 
-- **Puxar assunto** (menu "🗨️", config `small_talk`): a cada 15-30 min de uso ela faz uma **pergunta com
+- **Puxar assunto** (configurações, config `small_talk`): a cada 15-30 min de uso (5-10 min dentro de uma
+  área de trabalho remota, onde ela não enxerga os apps) ela faz uma **pergunta com
   botões** no balão ("Bebeu água?", "Como você tá?", almoço, café, postura, "vai dormir?"...), conta uma
   **curiosidade de aranha** ou solta uma fala da data. A resposta muda a reação; "💧 Bebi!" conta no resumo.
-- **Eventos do PC** (mesma opção): Print Screen ou Win+Shift+S, pendrive conectado/removido, internet caiu/voltou
-  (precisa se repetir em duas checagens) e som mudo/desmudo.
+- **Eventos do PC** (mesma opção): pendrive conectado/removido, internet caiu/voltou (precisa se repetir em
+  duas checagens) e som mudo/desmudo. Print de tela não tem reação de propósito: a fala sairia na imagem.
+- **Área de Trabalho Remota:** o mstsc e o Windows App (`msrdc`) têm falas próprias. Janelas de RemoteApp são
+  reconhecidas pelo fim do título ("Livro1 - Excel (Remoto)" é o Excel) e ganham os comentários do app.
 - **8 horas de PC** no dia geram um aviso, e depois das 18h (com 2h de uso) ela oferece o resumo do dia.
 - **Amizade** ("💖 Nossa amizade"): cliques, respostas, moscas, pomodoros e meia hora de companhia dão pontos
   (no máximo 20 por dia); clicar demais tira. Níveis: Conhecida, Colega (25), Amiga (90) e Melhor amiga (220).
@@ -196,10 +204,8 @@ some se estiver no monitor do app em tela cheia. `WEBI_DEBUG=1` também lista os
 - **Clique** na aranha: ela responde com uma fala aleatória, uma expressão e um gesto. Às vezes é um
   cumprimento que depende da hora do dia. Clicar demais a deixa brava. **Arrastar**: ela fica pendurada no
   cursor por um fio; ao soltar, é arremessada.
-- **Botão direito**: menu com pomodoro, "próximos lembretes", "como está o PC?", tamanho, intervalo dos
-  lembretes de água e de pausa (desligado / 15 / 30 / 45 / 60 / 90 min), monitor do sistema, config e sair.
-  Em **🔧 Ajustes**: tempo até dormir, limite do alerta de CPU, limite do alerta de bateria (só com bateria)
-  e "Sumir com app em tela cheia". Com um pomodoro rodando, o tooltip da bandeja mostra o tempo que falta.
+- **Botão direito**: menu só com ações rápidas: pomodoro, "próximos lembretes", timers, post-it, resumo do
+  dia, amizade, "como está o PC?", teias, esconder, configurações e sair. Com um pomodoro rodando, o tooltip da bandeja mostra o tempo que falta.
   Os lembretes contam só o tempo em que você está usando o PC (mouse ou teclado nos últimos 2 min), e o de
   pausa fica em espera enquanto um pomodoro roda. O mesmo menu aparece no ícone da bandeja, e o clique esquerdo no ícone equivale a cutucar a aranha.
 - Todas as falas ficam em `src/Spider/Lines.cs`.
@@ -207,7 +213,7 @@ some se estiver no monitor do app em tela cheia. `WEBI_DEBUG=1` também lista os
 
 ## Cores
 
-Menu "🎨 Cor" (config `fur_color`): marrom (original), preto, branco, cinza, vermelho, amarelo, laranja,
+"🎨 Cor" em ⚙ Configurações > Geral (config `fur_color`): marrom (original), preto, branco, cinza, vermelho, amarelo, laranja,
 verde, azul, roxo e rosa. A recoloração é um **mapa de gradiente** aplicado uma vez, na troca de cor: a
 luminosidade de cada pixel do pelo escolhe uma cor numa rampa (do escuro ao claro) da pelagem. O
 sombreado se mantém e funciona até com preto, branco e cinza, que um giro de matiz não alcança. Os olhos
@@ -217,7 +223,13 @@ aro é identificado pela posição (anel externo do olho), porque compartilha as
 
 ## Configuração
 
-`%APPDATA%\Godot\app_userdata\Webi\config.json` (pelo menu: *Abrir config.json* e depois *Recarregar config*):
+Pelo menu: **⚙ Configurações...** abre uma página no navegador, servida pela própria Webi só em `localhost`
+(`src/Settings/`). Cada chamada leva um token aleatório gerado ao abrir pelo menu, então outros sites abertos no
+navegador não mexem nas configurações, e o servidor se desliga sozinho depois de 15 min sem uso. Salvar aplica na
+hora. A página também tem as **Novidades** de cada versão (`src/Changelog.cs`).
+
+Tudo fica em `%APPDATA%\Godot\app_userdata\Webi\config.json`, que dá para editar à mão (em Configurações >
+Avançado: *Abrir config.json* e *Recarregar do arquivo*):
 
 | chave | padrão | |
 |---|---|---|
@@ -230,17 +242,22 @@ aro é identificado pela posição (anel externo do olho), porque compartilha as
 | `sounds` | `false` | efeitos sonoros |
 | `bugs` | `true` | moscas para caçar |
 | `small_talk` | `true` | perguntas, curiosidades e eventos do PC |
+| `app_comments` | `true` | comentar o app ou site em primeiro plano |
+| `system_monitor` | `true` | alertas de CPU, memória e bateria |
+| `auto_webs`, `max_webs`, `screen_web_minutes` | `true`, 5, 5 | teias (ver "Teias") |
 | `seasonal` | `true` | chapéus e falas de datas especiais |
 | `birthday` | `""` | aniversário, `dd/mm` |
 
 Valores fora da faixa são corrigidos ao carregar (um lembrete de 0 min, por exemplo, vira 1 min). Se o
 arquivo tiver um erro de JSON, ela avisa, usa os padrões e **não grava nada** até o arquivo ser consertado
-e recarregado, para não apagar o que você escreveu.
+e recarregado (ou salvo pela página, que substitui o arquivo), para não apagar o que você escreveu.
 
 ## Arquitetura
 
 ```
-src/Main.cs                 liga tudo; click-through dinâmico; menus
+src/Main.cs                 liga tudo; click-through dinâmico; menu de ações rápidas
+src/Settings/*              página de configurações (servidor em localhost + settings.html embutido no exe)
+src/Changelog.cs            novidades de cada versão (a primeira tem de bater com o project.godot: há teste)
 src/Win32/Autostart.cs      "iniciar com o Windows" (chave Run do usuário)
 src/Win32/Overlay.cs        uma janela transparente por monitor (mundo 2D compartilhado), topmost, fora da taskbar,
                             click-through por janela, detecção de mudança de monitores

@@ -34,4 +34,14 @@ public class ConfigTests
         Assert.Equal(1, config.BatteryAlertPercent);
         Assert.Equal(1, config.SleepAfterIdleMinutes);
     }
+
+    [Fact]
+    public void Json_round_trip()
+    {
+        var config = Config.FromJson("""{ "water_minutes": 30, "fur_color": "ROXO", "screen_web_minutes": -3 }""");
+        Assert.Equal(30, config.WaterMinutes);
+        Assert.Equal("roxo", config.FurColor);
+        Assert.Equal(0, config.ScreenWebMinutes);
+        Assert.Equal(config.ToJson(), Config.FromJson(config.ToJson()).ToJson());
+    }
 }

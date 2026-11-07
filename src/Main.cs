@@ -1,6 +1,9 @@
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Godot;
 using Webi.Assistant;
+using Webi.Settings;
 using Webi.Spider;
 using Webi.UI;
 using Webi.Win32;
@@ -44,12 +47,12 @@ public partial class Main : Node2D
     ShoutBubble _shout = null!;
     WebLayer _webs = null!;
     PopupMenu _menu = null!;
-    /// <summary>Radio submenus (size, reminder intervals) and how to read their current value, for refreshing the checks.</summary>
-    readonly System.Collections.Generic.List<(PopupMenu menu, System.Func<int> current)> _radioMenus = new();
     PopupMenu? _trayMenu;
-    /// <summary>Menus with check items and labels to refresh: the main one, the tray one and their settings submenus.</summary>
+    /// <summary>Menus with labels to refresh: the right-click one and the tray one.</summary>
     readonly System.Collections.Generic.List<PopupMenu> _checkMenus = new();
     StatusIndicator? _tray;
+    /// <summary>The settings page, created the first time it's opened.</summary>
+    SettingsServer? _settings;
 
     float _scanTimer, _topmostTimer, _fullscreenTimer, _layoutTimer, _debugTimer, _tooltipTimer;
     /// <summary>Out of sight: behind a fullscreen app, or parked with no floor anywhere.</summary>
@@ -62,23 +65,15 @@ public partial class Main : Node2D
     float _lastDelta = 1 / 60f;
     bool _greeted;
 
+    /// <summary>The menu only has quick actions; the settings live in the settings page (<see cref="OpenSettings"/>).</summary>
     enum MenuId
     {
-        Pomodoro, PomodoroStatus, Upcoming, PcStatus, AppComments, MakeWeb, ClearWebs, AutoWebs, Monitor, Autostart, HideOnFullscreen,
-        OpenConfig, ReloadConfig, DebugRestart, OpenLog, Quit,
-        NewTimer, CancelTimers, NewNote, DaySummary, Friendship, Bugs, Sounds, SmallTalk, Seasonal, Birthday, Hide, Version,
+        Pomodoro, PomodoroStatus, Upcoming, PcStatus, MakeWeb, ClearWebs, DebugRestart, OpenLog, Quit,
+        NewTimer, CancelTimers, NewNote, DaySummary, Friendship, Hide, Version, Settings,
     }
-
-    static readonly int[] ReminderIntervals = { 15, 30, 45, 60, 90 };
-    static readonly int[] GiantWebMinutes = { 2, 5, 10, 15, 30 };
-    static readonly int[] SleepMinutes = { 2, 5, 10, 15, 30 };
-    static readonly int[] CpuAlerts = { 80, 85, 90, 95 };
-    static readonly int[] BatteryAlerts = { 10, 15, 20, 30 };
 
     /// <summary>Frame rate while something is going on, and while asleep or out of sight with the mouse still.</summary>
     const int ActiveFps = 60, RestingFps = 15;
-    /// <summary>Ids of the submenu entries, clear of every <see cref="MenuId"/>.</summary>
-    const int SubmenuId = 100;
 
     public override void _Ready()
     {
@@ -309,7 +304,7 @@ public partial class Main : Node2D
         }
     }
 
-    const string ConfigErrorText = "O config.json tem um erro, então tô usando o padrão (e não mexo no arquivo até você consertar e recarregar). 🛠️";
+    const string ConfigErrorText = "O config.json tem um erro, então tô usando o padrão (e não mexo no arquivo até você consertar ou salvar pelas ⚙ Configurações). 🛠️";
 
     // ------------------------------------------------------------------ UI
 
@@ -345,7 +340,7 @@ public partial class Main : Node2D
         _menu.PopupHide += () => CallDeferred(MethodName.ReturnMenuHome);
     }
 
-    /// <summary>Builds a menu (used for the right-click menu and the tray); each gets its own submenus.</summary>
+    /// <summary>Builds a menu of quick actions (used for the right-click menu and the tray).</summary>
     PopupMenu CreateMenu()
     {
         // Popups are transient children of the (always-on-top) overlay, so they already stay above it.
@@ -358,45 +353,17 @@ public partial class Main : Node2D
         menu.AddItem("⏰ Próximos lembretes", (int)MenuId.Upcoming);
         menu.AddItem("⏲ Novo timer / lembrete...", (int)MenuId.NewTimer);
         menu.AddItem("🗑 Cancelar timers", (int)MenuId.CancelTimers);
+        menu.AddSeparator();
         menu.AddItem("📝 Novo post-it...", (int)MenuId.NewNote);
         menu.AddItem("📊 Resumo do dia", (int)MenuId.DaySummary);
         menu.AddItem("💖 Nossa amizade", (int)MenuId.Friendship);
         menu.AddItem("💻 Como está o PC?", (int)MenuId.PcStatus);
         menu.AddSeparator();
-        // Submenus get their own ids: without one Godot uses the item's position, which collided with the
-        // MenuId values (the web checkboxes were being checked on the reminder submenus instead).
-        menu.AddSubmenuNodeItem("🎨 Cor",
-            RadioMenu(FurColors.All.Select((c, i) => (c.Name, i)),
-                () => System.Array.FindIndex(FurColors.All, c => c.Id == FurColors.Find(_config.FurColor).Id), SetFur), SubmenuId);
-        menu.AddSubmenuNodeItem("📏 Tamanho",
-            RadioMenu(new[] { 1, 2, 3, 4 }.Select(n => ($"{n}x", n)), () => _config.Scale, SetScale), SubmenuId + 1);
-        var intervals = new[] { ("Desligado", 0) }.Concat(ReminderIntervals.Select(m => ($"A cada {m} min", m))).ToArray();
-        menu.AddSubmenuNodeItem("💧 Lembrete de água",
-            RadioMenu(intervals, () => _config.WaterReminder ? _config.WaterMinutes : 0, SetWaterInterval), SubmenuId + 2);
-        menu.AddSubmenuNodeItem("🧘 Lembrete de pausa",
-            RadioMenu(intervals, () => _config.BreakReminder ? _config.BreakMinutes : 0, SetBreakInterval), SubmenuId + 3);
-        menu.AddCheckItem("💬 Comentar o que estou fazendo", (int)MenuId.AppComments);
-        menu.AddCheckItem("🗨️ Puxar assunto (perguntas, curiosidades, eventos do PC)", (int)MenuId.SmallTalk);
-        menu.AddSeparator();
         menu.AddItem("🕸️ Fazer uma teia", (int)MenuId.MakeWeb);
         menu.AddItem("🧹 Limpar teias", (int)MenuId.ClearWebs);
-        menu.AddCheckItem("🕷️ Tecer teias por conta própria", (int)MenuId.AutoWebs);
-        menu.AddSubmenuNodeItem("🕸️ Teia gigante com o mouse parado",
-            RadioMenu(new[] { ("Desligado", 0) }.Concat(GiantWebMinutes.Select(m => ($"Depois de {m} min", m))),
-                () => _config.ScreenWebMinutes, SetGiantWeb), SubmenuId + 4);
-        menu.AddCheckItem("🪰 Moscas para caçar", (int)MenuId.Bugs);
         menu.AddSeparator();
-        menu.AddCheckItem("🔊 Sons", (int)MenuId.Sounds);
-        menu.AddCheckItem("🎃 Datas especiais (chapéus e falas)", (int)MenuId.Seasonal);
-        menu.AddItem("🎂 Meu aniversário...", (int)MenuId.Birthday);
         menu.AddItem("🙈 Esconder (Ctrl+Alt+H)", (int)MenuId.Hide);
-        menu.AddSeparator();
-        menu.AddCheckItem("📊 Monitor do sistema", (int)MenuId.Monitor);
-        menu.AddCheckItem("🚀 Iniciar com o Windows", (int)MenuId.Autostart);
-        menu.AddSubmenuNodeItem("🔧 Ajustes", SettingsMenu(), SubmenuId + 5);
-        menu.AddSeparator();
-        menu.AddItem("⚙ Abrir config.json", (int)MenuId.OpenConfig);
-        menu.AddItem("🔄 Recarregar config", (int)MenuId.ReloadConfig);
+        menu.AddItem("⚙ Configurações...", (int)MenuId.Settings);
         menu.AddItem(DebugMode ? "🐞 Reiniciar em modo normal" : "🐞 Reiniciar em modo debug", (int)MenuId.DebugRestart);
         if (DebugMode) menu.AddItem("📄 Abrir log de debug", (int)MenuId.OpenLog);
         menu.AddSeparator();
@@ -412,113 +379,12 @@ public partial class Main : Node2D
         return menu;
     }
 
-    /// <summary>The less used settings that used to need config.json: sleep, alert thresholds, fullscreen.</summary>
-    PopupMenu SettingsMenu()
-    {
-        var menu = new PopupMenu();
-        _checkMenus.Add(menu);
-        menu.AddSubmenuNodeItem("😴 Dormir sem uso",
-            RadioMenu(SleepMinutes.Select(m => ($"Depois de {m} min", m)), () => _config.SleepAfterIdleMinutes, SetSleep), SubmenuId);
-        menu.AddSubmenuNodeItem("🔥 Alerta de CPU",
-            RadioMenu(CpuAlerts.Select(n => ($"Acima de {n}%", n)), () => _config.CpuAlertPercent, SetCpuAlert), SubmenuId + 1);
-        if (_monitor.HasBattery)
-            menu.AddSubmenuNodeItem("🔋 Alerta de bateria",
-                RadioMenu(BatteryAlerts.Select(n => ($"Abaixo de {n}%", n)), () => _config.BatteryAlertPercent, SetBatteryAlert), SubmenuId + 2);
-        menu.AddCheckItem("🙈 Sumir com app em tela cheia", (int)MenuId.HideOnFullscreen);
-        menu.IdPressed += id =>
-        {
-            if (id >= SubmenuId) return;
-            OnMenu((MenuId)(int)id);
-            RefreshMenus();
-        };
-        menu.AboutToPopup += RefreshMenus;
-        return menu;
-    }
-
-    void SetGiantWeb(int minutes)
-    {
-        _config.ScreenWebMinutes = minutes;
-        _config.Save();
-        _bubble.Show(minutes > 0
-            ? $"Se o mouse ficar parado {minutes} min, eu cubro a tela de teia. Hehe. 🕸️"
-            : "Tá bom, nada de teia gigante.", 4);
-    }
-
-    void SetSleep(int minutes)
-    {
-        _config.SleepAfterIdleMinutes = minutes;
-        _config.Save();
-        _bubble.Show($"Combinado: depois de {minutes} min sem você mexer no PC eu tiro um cochilo. 😴", 4);
-    }
-
-    void SetCpuAlert(int percent)
-    {
-        _config.CpuAlertPercent = percent;
-        _config.Save();
-        _bubble.Show($"Eu grito se a CPU passar de {percent}% por um tempinho. 🔥", 4);
-    }
-
-    void SetBatteryAlert(int percent)
-    {
-        _config.BatteryAlertPercent = percent;
-        _config.Save();
-        _bubble.Show($"Eu aviso quando a bateria cair para {percent}%. 🔋", 4);
-    }
-
-    PopupMenu RadioMenu(System.Collections.Generic.IEnumerable<(string label, int id)> items, System.Func<int> current, System.Action<int> apply)
-    {
-        var sub = new PopupMenu();
-        foreach (var (label, id) in items) sub.AddRadioCheckItem(label, id);
-        // Refresh every menu right away: the tray menu doesn't always announce that it's opening.
-        sub.IdPressed += id =>
-        {
-            apply((int)id);
-            RefreshMenus();
-        };
-        sub.AboutToPopup += RefreshMenus;
-        _radioMenus.Add((sub, current));
-        return sub;
-    }
-
-    void SetFur(int index)
-    {
-        var fur = FurColors.All[index];
-        _config.FurColor = fur.Id;
-        _config.Save();
-        _spider.SetFur(fur);
-        UpdateTrayIcon();
-        _brain.React(Face.Happy, 2);
-        _bubble.Show($"Pelagem nova: {fur.Name.ToLowerInvariant()}! Combinou comigo? 🎨", 4);
-    }
-
     void UpdateTrayIcon()
     {
         if (_tray == null) return;
         var icon = SpiderRig.LoadTexture("res://art/parts/icon.png");
         if (icon == null) return;
         _tray.Icon = ImageTexture.CreateFromImage(FurColors.RecolorFur(icon.GetImage(), FurColors.Find(_config.FurColor)));
-    }
-
-    void SetWaterInterval(int minutes)
-    {
-        _config.WaterReminder = minutes > 0;
-        if (minutes > 0) _config.WaterMinutes = minutes;
-        _config.Save();
-        _reminders.ResetWater();
-        _bubble.Show(minutes > 0
-            ? $"Combinado! Te lembro de beber água a cada {minutes} min de uso do PC. 💧"
-            : "Lembrete de água desligado.", 5);
-    }
-
-    void SetBreakInterval(int minutes)
-    {
-        _config.BreakReminder = minutes > 0;
-        if (minutes > 0) _config.BreakMinutes = minutes;
-        _config.Save();
-        _reminders.ResetBreak();
-        _bubble.Show(minutes > 0
-            ? $"Combinado! A cada {minutes} min de uso do PC eu te chamo pra uma pausa. 🧘"
-            : "Lembrete de pausa desligado.", 5);
     }
 
     void BuildTray()
@@ -570,32 +436,15 @@ public partial class Main : Node2D
         if (_menu.GetParent() != this) _menu.Reparent(this, keepGlobalTransform: false);
     }
 
-    bool AnyMenuOpen() =>
-        _menu.Visible || (_trayMenu?.Visible ?? false) || _radioMenus.Any(r => r.menu.Visible);
+    bool AnyMenuOpen() => _menu.Visible || (_trayMenu?.Visible ?? false);
 
     void RefreshMenus()
     {
         foreach (var m in _checkMenus)
         {
-            void Check(MenuId id, bool on) { int i = m.GetItemIndex((int)id); if (i >= 0) m.SetItemChecked(i, on); }
             void Text(MenuId id, string t) { int i = m.GetItemIndex((int)id); if (i >= 0) m.SetItemText(i, t); }
-            Check(MenuId.Monitor, _config.SystemMonitor);
-            Check(MenuId.AutoWebs, _config.AutoWebs);
-            Check(MenuId.AppComments, _config.AppComments);
-            Check(MenuId.HideOnFullscreen, _config.HideOnFullscreen);
-            Check(MenuId.Autostart, Autostart.IsEnabled());
-            Check(MenuId.Bugs, _config.Bugs);
-            Check(MenuId.Sounds, _config.Sounds);
-            Check(MenuId.SmallTalk, _config.SmallTalk);
-            Check(MenuId.Seasonal, _config.Seasonal);
             Text(MenuId.Hide, _userHidden ? "🙉 Mostrar (Ctrl+Alt+H)" : "🙈 Esconder (Ctrl+Alt+H)");
             Text(MenuId.Pomodoro, _reminders.PomodoroRunning ? "🍅 Parar pomodoro" : "🍅 Iniciar pomodoro");
-        }
-        foreach (var (sub, current) in _radioMenus)
-        {
-            int value = current();
-            for (int i = 0; i < sub.ItemCount; i++)
-                sub.SetItemChecked(i, sub.GetItemId(i) == value);
         }
     }
 
@@ -629,34 +478,6 @@ public partial class Main : Node2D
             case MenuId.NewNote: AskNote(); break;
             case MenuId.DaySummary: _bubble.Show(DaySummary.Describe(_state), 12); break;
             case MenuId.Friendship: _bubble.Show(_friendship.Describe(), 8); break;
-            case MenuId.Bugs:
-                _config.Bugs = !_config.Bugs;
-                _config.Save();
-                _bugs.Enabled = _config.Bugs;
-                if (_config.Bugs) _bugs.Spawn();
-                else _bugs.Clear();
-                _bubble.Show(_config.Bugs ? "Olha, uma mosca! Hora da caça. 🪰" : "Sem moscas por aqui, então. 🧹", 3);
-                break;
-            case MenuId.Sounds:
-                _config.Sounds = !_config.Sounds;
-                _config.Save();
-                _sfx.Enabled = _config.Sounds;
-                _sfx.Play(Sound.Chirp);
-                _bubble.Show(_config.Sounds ? "Pi-pi! Agora eu faço barulhinho. 🔊" : "Modo silencioso. 🔇", 3);
-                break;
-            case MenuId.SmallTalk:
-                _config.SmallTalk = !_config.SmallTalk;
-                _config.Save();
-                _talk.Enabled = _events.Enabled = _config.SmallTalk;
-                _bubble.Show(_config.SmallTalk ? "Oba! De vez em quando eu puxo assunto. 🗨️" : "Tá bom, só falo quando você me chamar.", 4);
-                break;
-            case MenuId.Seasonal:
-                _config.Seasonal = !_config.Seasonal;
-                _config.Save();
-                UpdateSeason();
-                _bubble.Show(_config.Seasonal ? "Datas especiais ligadas! Já separei meus chapéus. 🎩" : "Tá bom, sem chapéu. 🙂", 3);
-                break;
-            case MenuId.Birthday: AskBirthday(); break;
             case MenuId.Hide: ToggleHide(); break;
             case MenuId.MakeWeb:
                 _brain.WakeUp();
@@ -668,56 +489,7 @@ public partial class Main : Node2D
                 _brain.OnGiantTorn();
                 _bubble.Show("Faxina feita! 🧹 Sem teias por aqui.", 3);
                 break;
-            case MenuId.AppComments:
-                _config.AppComments = !_config.AppComments;
-                _config.Save();
-                _apps.Enabled = _config.AppComments;
-                _bubble.Show(_config.AppComments
-                    ? "Vou dar uns pitacos no que você estiver fazendo. 👀"
-                    : "Tá bom, fico de quelíceras fechadas. 🤐", 4);
-                break;
-            case MenuId.HideOnFullscreen:
-                _config.HideOnFullscreen = !_config.HideOnFullscreen;
-                _config.Save();
-                _bubble.Show(_config.HideOnFullscreen
-                    ? "Quando um jogo ou vídeo ocupar a tela, eu saio de fininho. 🙈"
-                    : "Vou ficar por aqui até em tela cheia! 👀", 4);
-                break;
-            case MenuId.AutoWebs:
-                _config.AutoWebs = !_config.AutoWebs;
-                _config.Save();
-                _brain.AutoWebs = _config.AutoWebs;
-                _bubble.Show(_config.AutoWebs ? "Vou tecer umas teias de vez em quando. 🕸️" : "Combinado, só teço quando você pedir.", 4);
-                break;
-            case MenuId.Monitor:
-                _config.SystemMonitor = !_config.SystemMonitor;
-                _config.Save();
-                _bubble.Show(_config.SystemMonitor
-                    ? "Fico de olho na CPU, na memória e na bateria. 📊"
-                    : "Tá bom, não grito mais sobre o PC.", 4);
-                break;
-            case MenuId.Autostart:
-                bool on = !Autostart.IsEnabled();
-                Autostart.SetEnabled(on);
-                _bubble.Show(on ? "Combinado! Eu apareço sempre que você ligar o PC. 🕷️" : "Tá bom, não apareço mais por conta própria... só quando você me chamar.", 4);
-                break;
-            case MenuId.OpenConfig: OS.ShellOpen(Config.FilePath); break;
-            case MenuId.ReloadConfig:
-                CopyConfig(Config.Load(), _config);
-                _spider.SetPixelScale(_config.Scale);
-                _spider.SetFur(FurColors.Find(_config.FurColor));
-                UpdateTrayIcon();
-                _webs.PixelScale = _config.Scale;
-                _brain.AutoWebs = _config.AutoWebs;
-                _brain.MaxWebs = _config.MaxWebs;
-                _apps.Enabled = _config.AppComments;
-                _bugs.Enabled = _config.Bugs;
-                _bugs.PixelScale = _notes.PixelScale = _config.Scale;
-                _sfx.Enabled = _config.Sounds;
-                _talk.Enabled = _events.Enabled = _config.SmallTalk;
-                UpdateSeason();
-                _bubble.Show(_config.LoadError != null ? ConfigErrorText : "Configurações recarregadas!", _config.LoadError != null ? 7 : 3);
-                break;
+            case MenuId.Settings: OpenSettings(); break;
             case MenuId.DebugRestart: Restart(debug: !DebugMode); break;
             case MenuId.OpenLog: OS.ShellOpen(ProjectSettings.GlobalizePath("user://logs/godot.log")); break;
             case MenuId.Quit: GetTree().Quit(); break;
@@ -747,20 +519,92 @@ public partial class Main : Node2D
         GetTree().Quit();
     }
 
+    // ------------------------------------------------------------------ settings page
+
+    /// <summary>Opens the settings page in the browser (starting its little server if needed).</summary>
+    void OpenSettings()
+    {
+        _settings ??= new SettingsServer
+        {
+            State = SettingsState,
+            Save = SaveSettings,
+            Reload = ReloadConfig,
+            OpenConfigFile = () => OS.ShellOpen(Config.FilePath),
+            Log = message => GD.Print($"[configurações] {message}"),
+        };
+        if (!_settings.Start())
+        {
+            _bubble.Show("Não consegui abrir as configurações... 😵 (o motivo está no log)", 5);
+            return;
+        }
+        OS.ShellOpen(_settings.Url);
+        _bubble.Show("Abri as configurações no navegador! ⚙", 4);
+    }
+
+    /// <summary>What the settings page shows.</summary>
+    JsonObject SettingsState() => new()
+    {
+        ["config"] = JsonSerializer.SerializeToNode(_config, Config.Json),
+        ["autostart"] = Autostart.IsEnabled(),
+        ["has_battery"] = _monitor.HasBattery,
+        ["version"] = Version,
+        ["changelog"] = JsonSerializer.SerializeToNode(Changelog.Releases, Config.Json),
+        ["config_path"] = Config.FilePath,
+        ["load_error"] = _config.LoadError,
+        ["fur_colors"] = new JsonArray(FurColors.All.Select(c => (JsonNode)new JsonObject { ["id"] = c.Id, ["name"] = c.Name }).ToArray()),
+    };
+
+    /// <summary>A config sent by the settings page: saved and put to work right away.</summary>
+    void SaveSettings(Config next, bool? autostart)
+    {
+        bool water = next.WaterReminder != _config.WaterReminder || next.WaterMinutes != _config.WaterMinutes;
+        bool pause = next.BreakReminder != _config.BreakReminder || next.BreakMinutes != _config.BreakMinutes;
+        var birthday = _config.Birthday;
+        CopyConfig(next, _config);
+        _config.Save();
+        ApplyConfig();
+        if (water) _reminders.ResetWater();
+        if (pause) _reminders.ResetBreak();
+        if (autostart is bool on && on != Autostart.IsEnabled()) Autostart.SetEnabled(on);
+        _brain.React(Face.Happy, 1.5f);
+        if (_config.Birthday != birthday && SpecialGreeting()) return;
+        _bubble.Show("Configurações salvas! ✅", 3);
+    }
+
+    /// <summary>Reads config.json again (after editing it by hand). Returns its error, if any.</summary>
+    string? ReloadConfig()
+    {
+        CopyConfig(Config.Load(), _config);
+        ApplyConfig();
+        _bubble.Show(_config.LoadError != null ? ConfigErrorText : "Configurações recarregadas!", _config.LoadError != null ? 7 : 3);
+        return _config.LoadError;
+    }
+
+    /// <summary>Puts the current config to work (the reminders, the system monitor and a few timers read it live).</summary>
+    void ApplyConfig()
+    {
+        _spider.SetPixelScale(_config.Scale);
+        _spider.SetFur(FurColors.Find(_config.FurColor));
+        UpdateTrayIcon();
+        _webs.PixelScale = _bugs.PixelScale = _notes.PixelScale = _config.Scale;
+        _brain.AutoWebs = _config.AutoWebs;
+        _brain.MaxWebs = _config.MaxWebs;
+        if (_bugs.Enabled != _config.Bugs)
+        {
+            _bugs.Enabled = _config.Bugs;
+            if (_config.Bugs) _bugs.Spawn();
+            else _bugs.Clear();
+        }
+        _apps.Enabled = _config.AppComments;
+        _sfx.Enabled = _config.Sounds;
+        _talk.Enabled = _events.Enabled = _config.SmallTalk;
+        UpdateSeason();
+    }
+
     static void CopyConfig(Config from, Config to)
     {
         foreach (var p in typeof(Config).GetProperties().Where(p => p.CanWrite))
             p.SetValue(to, p.GetValue(from));
-    }
-
-    void SetScale(int scale)
-    {
-        _config.Scale = scale;
-        _config.Save();
-        _spider.SetPixelScale(scale);
-        _webs.PixelScale = scale;
-        _bugs.PixelScale = scale;
-        _notes.PixelScale = scale;
     }
 
     void Poke()
@@ -773,7 +617,7 @@ public partial class Main : Node2D
         _bubble.Show(text, 4);
     }
 
-    // ------------------------------------------------------------------ text input (timers, notes, birthday)
+    // ------------------------------------------------------------------ text input (timers, notes)
 
     void AskTimer()
     {
@@ -820,24 +664,6 @@ public partial class Main : Node2D
             _brain.React(Face.Happy, 1.5f);
             _bubble.Show("Corrigido! ✏️", 3);
         }, 120);
-    }
-
-    void AskBirthday()
-    {
-        _input.Ask("Qual o dia do seu aniversário? (dia/mês, ex.: 27/10). Deixe vazio e cancele pra não mudar.", "dd/mm", _config.Birthday, text =>
-        {
-            if (!Seasons.TryParseBirthday(text, out int d, out int m))
-            {
-                _bubble.Show("Hmm, não entendi a data. Usa dia/mês, tipo 27/10. 🎂", 4);
-                return;
-            }
-            _config.Birthday = $"{d:00}/{m:00}";
-            _config.Save();
-            UpdateSeason();
-            var now = System.DateTime.Now;
-            if (!(now.Day == d && now.Month == m && SpecialGreeting()))
-                _bubble.Show($"Anotado: {d:00}/{m:00}! Nesse dia vai ter festa. 🎉", 4);
-        }, 10);
     }
 
     // ------------------------------------------------------------------ loop & input
@@ -894,6 +720,7 @@ public partial class Main : Node2D
         TrackDay(delta, idle);
         _timers.Tick(delta, System.DateTime.Now);
         _reminders.Tick(delta, idle < 120);
+        _settings?.Tick();
         _monitor.Tick(delta);
         bool canTalk = !_hidden && !_brain.Asleep && !_brain.Busy && !_shout.Visible && !_dnd.Active && !_bubble.HasChoices;
         _apps.Tick(delta, idle, canTalk);
@@ -986,6 +813,7 @@ public partial class Main : Node2D
     {
         // Only the instance that got going has something to save (a second copy quits right away).
         if (_state != null && _timers != null) _state.Save();
+        _settings?.Dispose();
     }
 
     /// <summary>

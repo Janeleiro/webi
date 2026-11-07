@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Webi · Configurações</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕷️</text></svg>">
+<style>
+:root {
+  --bg: #f7f5fa; --panel: #ffffff; --panel-2: #f0ecf6; --text: #241f2b; --muted: #6f6680; --line: #e4dfec;
+  --accent: #7148c4; --accent-ink: #ffffff; --accent-soft: #ece4fa; --ok: #2f8f5b; --ok-soft: #e1f4e9;
+  --bad: #c2412d; --bad-soft: #fbe5e1; --warn: #a86b00; --warn-soft: #fdf1d8; --shadow: 0 1px 2px rgba(30,15,60,.06), 0 4px 16px rgba(30,15,60,.06);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17141c; --panel: #201c27; --panel-2: #29242f; --text: #eee9f5; --muted: #a99fb8; --line: #362f40;
+    --accent: #ad8cf2; --accent-ink: #17141c; --accent-soft: #2f2545; --ok: #5cc48c; --ok-soft: #1d3327;
+    --bad: #f07a66; --bad-soft: #3d201b; --warn: #e7b04a; --warn-soft: #3a2e15; --shadow: none;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, "Segoe UI", sans-serif; }
+a { color: var(--accent); }
+.layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 32px; max-width: 1040px; margin: 0 auto; padding: 28px 16px 120px; }
+nav { position: sticky; top: 24px; align-self: start; }
+.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+.brand .logo { font-size: 34px; line-height: 1; }
+.brand b { display: block; font-size: 18px; }
+.brand small { color: var(--muted); }
+.brand a.ver { text-decoration: none; }
+.brand a.ver:hover small { color: var(--accent); }
+.release { margin-bottom: 14px; }
+.release .rhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.release .rhead .tag { font-size: 12px; font-weight: 500; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2px 9px; }
+.release .rhead small { color: var(--muted); }
+.release ul { margin: 0; padding-left: 20px; }
+.release li { margin: 4px 0; overflow-wrap: anywhere; }
+nav a.link { display: block; padding: 7px 12px; border-radius: 8px; color: var(--text); text-decoration: none; }
+nav a.link:hover { background: var(--panel-2); }
+nav a.link.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+main section.page { display: none; }
+main section.page.on { display: block; animation: fade .15s ease-out; }
+@keyframes fade { from { opacity: 0; transform: translateY(4px); } }
+h2 { font-size: 20px; margin: 0 0 4px; }
+.lead { color: var(--muted); margin: 0 0 14px; }
+h3 { font-size: 16px; margin: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 4px 18px; margin-bottom: 14px; }
+.card.pad { padding: 16px 18px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 0; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row .label { min-width: 0; }
+.row .label b { font-weight: 500; display: block; }
+.row .label small { color: var(--muted); display: block; }
+.row.sub { padding-left: 18px; }
+.row.dim { opacity: .5; }
+.ctl { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+input[type=number], select {
+  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-width: 0;
+}
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+input[type=number] { width: 84px; }
+.unit { color: var(--muted); font-size: 13px; }
+/* switch */
+.sw { position: relative; width: 42px; height: 24px; flex-shrink: 0; }
+.sw input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+.sw span { position: absolute; inset: 0; background: var(--line); border-radius: 99px; transition: background .15s; }
+.sw span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
+.sw input:checked + span { background: var(--accent); }
+.sw input:checked + span::after { transform: translateX(18px); }
+.sw input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { accent-color: var(--accent); width: 160px; }
+.btn { font: inherit; font-weight: 500; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 9px; padding: 7px 14px; cursor: pointer; }
+.btn:hover { background: var(--panel-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.05); }
+.btn:disabled { opacity: .5; cursor: default; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 0; }
+.banner { border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; }
+.banner.warn { background: var(--warn-soft); color: var(--warn); }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; background: var(--panel-2); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+.hint { color: var(--muted); font-size: 13px; }
+.savebar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; padding: 12px 16px; pointer-events: none; }
+.savebar .inner { pointer-events: auto; display: flex; align-items: center; gap: 12px; background: var(--text); color: var(--bg); border-radius: 14px; padding: 10px 12px 10px 18px; box-shadow: 0 8px 30px rgba(0,0,0,.25); transform: translateY(140%); transition: transform .2s; }
+.savebar.show .inner { transform: none; }
+.savebar .btn:not(.primary) { background: transparent; color: var(--bg); border-color: rgba(255,255,255,.3); }
+.toast { position: fixed; top: 16px; left: 50%; transform: translate(-50%, -150%); background: var(--panel); border: 1px solid var(--line); box-shadow: 0 8px 30px rgba(0,0,0,.18); padding: 10px 18px; border-radius: 12px; transition: transform .2s; z-index: 10; max-width: calc(100% - 32px); }
+.toast.show { transform: translate(-50%, 0); }
+.toast.bad { color: var(--bad); }
+.fatal { max-width: 520px; margin: 18vh auto; text-align: center; padding: 0 16px; }
+.fatal .logo { font-size: 64px; }
+.hidden { display: none !important; }
+@media (max-width: 760px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 8px; padding-top: 16px; }
+  nav { position: static; min-width: 0; }
+  nav .links { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 6px; }
+  nav a.link { white-space: nowrap; }
+  .row { flex-wrap: wrap; }
+  input[type=range] { width: 120px; }
+}
+</style>
+</head>
+<body>
+<div id="fatal" class="fatal hidden">
+  <div class="logo">🕷️</div>
+  <h2 id="fatal-title">Não consegui falar com a Webi</h2>
+  <p class="lead" id="fatal-text"></p>
+</div>
+
+<div id="app" class="layout hidden">
+  <nav>
+    <div class="brand"><span class="logo">🕷️</span><div><b>Webi</b><a class="ver" href="#novidades" title="Ver as novidades"><small id="version"></small></a></div></div>
+    <div class="links">
+      <a class="link" href="#geral">Geral</a>
+      <a class="link" href="#teias">Teias e moscas</a>
+      <a class="link" href="#lembretes">Lembretes</a>
+      <a class="link" href="#conversa">Conversa</a>
+      <a class="link" href="#sistema">Sistema</a>
+      <a class="link" href="#novidades">Novidades</a>
+      <a class="link" href="#avancado">Avançado</a>
+    </div>
+  </nav>
+
+  <main>
+    <div id="load-error" class="banner warn hidden"></div>
+
+    <section class="page" id="geral">
+      <h2>Geral</h2>
+      <p class="lead">Como a Webi aparece e se comporta no seu desktop.</p>
+      <div class="card">
+        <div class="row"><div class="label"><b>Iniciar com o Windows</b><small>Ela aparece sozinha quando você liga o PC.</small></div>
+          <label class="sw"><input type="checkbox" data-k="autostart"><span></span></label></div>
+        <div class="row"><div class="label"><b>🎨 Cor</b><small>A pelagem da Webi (e do ícone na bandeja).</small></div>
+          <div class="ctl"><select data-k="config.fur_color" id="fur"></select></div></div>
+        <div class="row"><div class="label"><b>📏 Tamanho</b><small>Quantos pixels da tela cada pixel da arte ocupa.</small></div>
+          <div class="ctl"><select data-k="config.scale" data-t="int">
+            <option value="1">1x (mini)</option><option value="2">2x (normal)</option><option value="3">3x</option><option value="4">4x (grandona)</option>
+          </select></div></div>
+        <div class="row"><div class="label"><b>🔊 Sons</b><small>Barulhinhos ao pular, estourar balões, caçar moscas e gritar alertas.</small></div>
+          <label class="sw"><input type="checkbox" data-k="config.sounds"><span></span></label></div>
+        <div class="row"><div class="label"><b>🙈 Sumir com app em tela cheia</b><small>Jogos e vídeos em tela cheia: ela sai de fininho.</small></div>
+          <label class="sw"><input type="checkbox" data-k="config.hide_on_fullscreen"><span></span></label></div>
+        <div class="row"><div class="label"><b>😴 Dormir sem uso</b><small>Tira um cochilo depois desse tempo sem mexer no mouse ou teclado.</small></div>
+          <div class="ctl"><input type="number" min="1" max="1440" data-k="config.sleep_after_idle_minutes" data-t="int"><span class="unit">min</span></div></div>
+      </div>
+    </section>
+
+    <section class="page" id="teias">
+      <h2>Teias e moscas</h2>
+      <p class="lead">Coisas de aranha. Pelo menu dá sempre para pedir uma teia ou fazer faxina.</p>
+      <div class="card">
+        <div class="row"><div class="label"><b>🕸️ Tecer teias por conta própria</b><small>De vez em quando ela tece uma teia num canto.</small></div>
+          <label class="sw"><input type="checkbox" data-k="config.auto_webs"><span></span></label></div>
+        <div class="row sub"><div class="label"><b>Máximo de teias</b><small>Passando disso, as mais velhas se desfazem.</small></div>
+          <div class="ctl"><input type="number" min="0" max="50" data-k="config.max_webs" data-t="int"></div></div>
+        <div class="row"><div class="label"><b>🕸️ Teia gigante com o mouse parado</b><small>Ela cobre o monitor inteiro de teia se o mouse ficar parado esse tempo. 0 = nunca.</small></div>
+          <div class="ctl"><input type="number" min="0" max="1440" data-k="config.screen_web_minutes" data-t="int"><span class="unit">min</span></div></div>
+        <div class="row"><div class="label"><b>🪰 Moscas para caçar</b><small>Moscas aparecem de vez em quando e a Webi vai atrás.</small></div>
+          <label class="sw"><input type="checkbox" data-k="config.bugs"><span></span></label></div>
+      </div>
+    </section>
+
+    <section class="page" id="lembretes">
+      <h2>Lembretes</h2>
+      <p class="lead">Contam só o tempo em que você está usando o PC.</p>
+      <div class="card">
+        <div class="row"><div class="label"><b>💧 Beber água</b></div>
+          <label class="sw"><input type="checkbox" data-k="config.water_reminder"><span></span></label></div>
+        <div class="row sub" data-when="config.water_reminder"><div class="label"><small>Lembrar a cada</small></div>
+          <div class="ctl"><input type="number" min="1" max="1440" data-k="config.water_minutes" data-t="int"><span class="unit">min</span></div></div>
+        <div class="row"><div class="label"><b>🧘 Fazer uma pausa</b><small>Não interrompe um pomodoro em andamento.</small></div>
+          <label class="sw"><input type="checkbox" data-k="config.break_reminder"><span></span></label></div>
+        <div class="row sub" data-when="config.break_reminder"><div class="label"><small>Lembrar a cada</small></div>
+          <div class="ctl"><input type="number" min="1" max="1440" data-k="config.break_minutes" data-t="int"><span class="unit">min</span></div></div>
+      </div>
+      <div class="card">
+        <div class="row"><div class="label"><b>🍅 Pomodoro: foco</b><small>Comece pelo menu da Webi.</small></div>
+          <div class="ctl"><input type="number" min="1" max="240" data-k="config.pomodoro_work_minutes" data-t="int"><span class="unit">min</span></div></div>
+        <div class="row"><div class="label"><b>🍅 Pomodoro: pausa</b></div>
+          <div class="ctl"><input type="number" min="1" max="120" data-k="config.pomodoro_break_minutes" data-t="int"><span class="unit">min</span></div></div>
+      </div>
+    </section>
+
+    <section class="page" id="conversa">
+      <h2>Conversa</h2>
+      <p class="lead">Quando e sobre o que ela puxa papo.</p>
+      <div class="card">
+        <div class="row"><div class="label"><b>💬 Comentar o que estou fazendo</b><small>Um pitaco depois de um minuto no mesmo app ou site. Nada é salvo nem enviado.</small></div>
+          <label class="sw"><input type="checkbox" data-k="config.app_comments"><span></span></label></div>
+        <div class="row"><div class="label"><b>🗨️ Puxar assunto</b><small>Perguntas, curiosidades sobre aranhas e reações a eventos do PC (USB, internet, som mudo).</small></div>
+          <label class="sw"><input type="checkbox" data-k="config.small_talk"><span></span></label></div>
+        <div class="row"><div class="label"><b>🎃 Datas especiais</b><small>Chapéus e falas no Halloween, Natal, festa junina, Páscoa...</small></div>
+          <label class="sw"><input type="checkbox" data-k="config.seasonal"><span></span></label></div>
+        <div class="row"><div class="label"><b>🎂 Meu aniversário</b><small>Nesse dia tem chapéu de festa e parabéns.</small></div>
+          <div class="ctl">
+            <select id="bday-d" aria-label="Dia"></select>
+            <select id="bday-m" aria-label="Mês"></select>
+          </div></div>
+      </div>
+    </section>
+
+    <section class="page" id="sistema">
+      <h2>Sistema</h2>
+      <p class="lead">Ela fica de olho no PC e grita quando algo passa do ponto.</p>
+      <div class="card">
+        <div class="row"><div class="label"><b>📊 Monitor do sistema</b><small>CPU, memória e bateria.</small></div>
+          <label class="sw"><input type="checkbox" data-k="config.system_monitor"><span></span></label></div>
+        <div class="row sub" data-when="config.system_monitor"><div class="label"><b>🔥 Alerta de CPU</b><small>Quando passar disso por um tempinho.</small></div>
+          <div class="ctl"><input type="range" min="30" max="100" step="5" data-k="config.cpu_alert_percent" data-t="int"><span class="unit" data-show="config.cpu_alert_percent" data-suffix="%"></span></div></div>
+        <div class="row sub" data-when="config.system_monitor" id="battery-row"><div class="label"><b>🔋 Alerta de bateria</b><small id="battery-note">Quando cair até aqui (fora da tomada).</small></div>
+          <div class="ctl"><input type="range" min="5" max="50" step="5" data-k="config.battery_alert_percent" data-t="int"><span class="unit" data-show="config.battery_alert_percent" data-suffix="%"></span></div></div>
+      </div>
+    </section>
+
+    <section class="page" id="novidades">
+      <h2>Novidades</h2>
+      <p class="lead">O que mudou em cada versão da Webi, da mais nova para a mais antiga.</p>
+      <div id="changelog"></div>
+    </section>
+
+    <section class="page" id="avancado">
+      <h2>Avançado</h2>
+      <p class="lead">Tudo aqui fica gravado no <code id="config-path"></code>.</p>
+      <div class="card pad">
+        <div class="actions" style="padding:0">
+          <button class="btn" id="open-config">Abrir config.json</button>
+          <button class="btn" id="reload-config">Recarregar do arquivo</button>
+        </div>
+        <p class="hint" style="margin-bottom:0">Editou o arquivo à mão? Clique em "Recarregar do arquivo" para a Webi (e esta página) usarem o que está lá.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="savebar" id="savebar"><div class="inner">
+  <span>Alterações não salvas</span>
+  <button class="btn" id="discard">Descartar</button>
+  <button class="btn primary" id="save">Salvar</button>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// ---------------------------------------------------------------- token & API
+const params = new URLSearchParams(location.search);
+let token = params.get("t");
+try {
+  if (token) sessionStorage.setItem("webi-token", token);
+  else token = sessionStorage.getItem("webi-token");
+} catch { /* storage blocked: the URL still has it */ }
+
+async function api(method, path, body) {
+  let res;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: { "X-Webi-Token": token || "", ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    offline();
+    throw new Error("a Webi não respondeu");
+  }
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 403) {
+    fatal("Acesso negado", "Abra esta página pelo menu da Webi: botão direito nela → ⚙ Configurações...");
+    throw new Error(data.error || "acesso negado");
+  }
+  if (!res.ok) throw new Error(data.error || `erro ${res.status}`);
+  return data;
+}
+
+function fatal(title, text) {
+  $("#fatal-title").textContent = title;
+  $("#fatal-text").textContent = text;
+  $("#fatal").classList.remove("hidden");
+  $("#app").classList.add("hidden");
+  $("#savebar").classList.add("hidden");
+}
+
+function offline() {
+  fatal("A Webi fechou as configurações", "Ela desliga esta página depois de um tempo sem uso (ou foi fechada). Abra de novo pelo menu: botão direito nela → ⚙ Configurações...");
+}
+
+let toastTimer;
+function toast(text, bad = false) {
+  const t = $("#toast");
+  t.textContent = text;
+  t.classList.toggle("bad", bad);
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), bad ? 6000 : 3000);
+}
+
+// ---------------------------------------------------------------- model
+let state = null;   // last thing the server said
+let model = null;   // what the page is editing: { config, autostart }
+let baseline = "";
+
+function getPath(obj, path) { return path.split(".").reduce((o, k) => o?.[k], obj); }
+function setPath(obj, path, value) {
+  const keys = path.split(".");
+  const last = keys.pop();
+  const target = keys.reduce((o, k) => (o[k] ??= {}), obj);
+  target[last] = value;
+}
+
+function load(s) {
+  state = s;
+  model = { config: structuredClone(s.config), autostart: s.autostart };
+  baseline = JSON.stringify(model);
+  render();
+}
+
+const dirty = () => JSON.stringify(model) !== baseline;
+function refreshDirty() { $("#savebar").classList.toggle("show", dirty()); }
+
+// ---------------------------------------------------------------- binding
+function readInput(el) {
+  if (el.type === "checkbox") return el.checked;
+  if (el.dataset.t === "int") { const n = parseInt(el.value, 10); return Number.isFinite(n) ? n : 0; }
+  return el.value;
+}
+
+function writeInput(el, v) {
+  if (el.type === "checkbox") el.checked = !!v;
+  else el.value = v ?? "";
+}
+
+function fill(root = document) {
+  for (const el of $$("[data-k]", root)) writeInput(el, getPath(model, el.dataset.k));
+  refreshDerived();
+}
+
+/** Things that follow the values: rows that depend on a switch, live labels. */
+function refreshDerived() {
+  for (const el of $$("[data-when]")) el.classList.toggle("dim", !getPath(model, el.dataset.when));
+  for (const el of $$("[data-show]")) el.textContent = getPath(model, el.dataset.show) + (el.dataset.suffix || "");
+}
+
+document.addEventListener("input", e => {
+  const el = e.target;
+  if (!el.dataset.k) return;
+  setPath(model, el.dataset.k, readInput(el));
+  refreshDerived();
+  refreshDirty();
+});
+document.addEventListener("change", e => {
+  if (e.target.matches("select[data-k], input[type=checkbox][data-k]")) e.target.dispatchEvent(new Event("input", { bubbles: true }));
+});
+
+// ---------------------------------------------------------------- birthday
+function setupBirthday() {
+  const d = $("#bday-d"), m = $("#bday-m");
+  d.innerHTML = `<option value="">dia</option>` + Array.from({ length: 31 }, (_, i) => `<option>${String(i + 1).padStart(2, "0")}</option>`).join("");
+  const months = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+  m.innerHTML = `<option value="">mês</option>` + months.map((n, i) => `<option value="${String(i + 1).padStart(2, "0")}">${n}</option>`).join("");
+  const update = () => {
+    model.config.birthday = d.value && m.value ? `${d.value}/${m.value}` : "";
+    refreshDirty();
+  };
+  d.addEventListener("change", update);
+  m.addEventListener("change", update);
+}
+function fillBirthday() {
+  const [d, m] = (model.config.birthday || "").split("/");
+  $("#bday-d").value = d || "";
+  $("#bday-m").value = m || "";
+}
+
+// ---------------------------------------------------------------- render
+function render() {
+  $("#app").classList.remove("hidden");
+  $("#fatal").classList.add("hidden");
+  $("#version").textContent = state.version;
+  $("#fur").innerHTML = (state.fur_colors || []).map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  renderChangelog();
+  $("#config-path").textContent = state.config_path;
+  const le = $("#load-error");
+  le.classList.toggle("hidden", !state.load_error);
+  le.textContent = state.load_error
+    ? `⚠️ O config.json tem um erro (${state.load_error}). A Webi está usando o padrão; salvar aqui substitui o arquivo.`
+    : "";
+  if (!state.has_battery) {
+    $("#battery-note").textContent = "Este PC não tem bateria.";
+    $("#battery-row input").disabled = true;
+  }
+  fillBirthday();
+  fill();
+  refreshDirty();
+}
+
+// ---------------------------------------------------------------- actions
+async function save() {
+  const btn = $("#save");
+  btn.disabled = true;
+  try {
+    load(await api("PUT", "/api/state", model));
+    toast("Configurações salvas! ✅");
+    return true;
+  } catch (err) {
+    toast("Não deu para salvar: " + err.message, true);
+    return false;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$("#save").addEventListener("click", save);
+$("#discard").addEventListener("click", () => { load(state); toast("Alterações descartadas."); });
+
+$("#open-config").addEventListener("click", () => api("POST", "/api/open-config").catch(err => toast(err.message, true)));
+
+$("#reload-config").addEventListener("click", async () => {
+  if (dirty() && !confirm("Recarregar do arquivo descarta as alterações não salvas desta página. Continuar?")) return;
+  try {
+    const s = await api("POST", "/api/reload");
+    load(s);
+    if (s.reload_error) toast("O config.json tem um erro: " + s.reload_error, true);
+    else toast("Recarregado do arquivo.");
+  } catch (err) { toast(err.message, true); }
+});
+
+window.addEventListener("beforeunload", e => { if (dirty()) { e.preventDefault(); e.returnValue = ""; } });
+
+// ---------------------------------------------------------------- changelog
+function renderChangelog() {
+  const current = (state.version || "").replace(/^v/, "");
+  const date = d => { const [y, m, day] = String(d || "").split("-"); return day ? `${day}/${m}/${y}` : ""; };
+  $("#changelog").innerHTML = (state.changelog || []).map(r => `<div class="card pad release">
+      <div class="rhead"><h3>v${esc(r.version)}</h3>${r.version === current ? `<span class="tag">versão atual</span>` : ""}<small>${esc(date(r.date))}</small></div>
+      <ul>${(r.changes || []).map(c => `<li>${esc(c)}</li>`).join("")}</ul></div>`).join("")
+    || `<p class="hint">Sem registro de versões.</p>`;
+}
+
+// ---------------------------------------------------------------- pages (one section at a time, by the URL hash)
+function route() {
+  const id = location.hash.slice(1);
+  const page = $$("main section.page").find(s => s.id === id) || $("#geral");
+  for (const s of $$("main section.page")) s.classList.toggle("on", s === page);
+  for (const a of $$("nav a.link")) a.classList.toggle("on", a.getAttribute("href") === "#" + page.id);
+  window.scrollTo(0, 0);
+}
+window.addEventListener("hashchange", route);
+
+// ---------------------------------------------------------------- start
+(async () => {
+  if (!token) { fatal("Abra pelo menu da Webi", "Clique com o botão direito na Webi (ou no ícone da bandeja) → ⚙ Configurações..."); return; }
+  setupBirthday();
+  try {
+    load(await api("GET", "/api/state"));
+  } catch { return; }
+  route();
+  // Takes the token out of the address bar (it stays in this tab's storage).
+  try { if (params.has("t")) history.replaceState(null, "", "/" + location.hash); } catch { /* not served over http */ }
+  // Keeps the server up while the page is open.
+  setInterval(() => api("GET", "/api/ping").catch(() => {}), 60_000);
+})();
+</script>
+</body>
+</html>
